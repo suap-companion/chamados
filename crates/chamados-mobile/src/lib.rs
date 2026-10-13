@@ -1,9 +1,12 @@
 //! Fachada do núcleo `chamados` para aplicativos (Kotlin no Android; Swift no iOS, no futuro).
 //!
 //! Spike M0 (`core_version`, `parse_listing`, `probe_suap`) e M2: o objeto [`Chamados`] com sessão,
-//! leitura e o executor de compartilhamentos, mais `classify_shared` e `text_to_pdf`.
+//! leitura e o executor de compartilhamentos, mais `classify_shared` e `text_to_pdf`; M7: títulos
+//! locais e sincronização cifrada (módulo `sync`).
 
 uniffi::setup_scaffolding!();
+
+mod sync;
 
 use std::{
     path::{Path, PathBuf},
@@ -283,6 +286,8 @@ pub fn text_to_pdf(title: Option<String>, text: String) -> Vec<u8> {
 #[derive(uniffi::Object)]
 pub struct Chamados {
     client: SuapClient,
+    paths: AppPaths,
+    base_url: Url,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -298,7 +303,11 @@ impl Chamados {
             ..SuapConfig::default()
         };
         let client = SuapClient::open(&paths, &config).map_err(failed)?;
-        Ok(Arc::new(Self { client }))
+        Ok(Arc::new(Self {
+            client,
+            paths,
+            base_url: config.base_url,
+        }))
     }
 
     /// Recebe os cookies da WebView de login (o cabeçalho `Cookie`); devolve quantos guardou. O

@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Só para ler o QR do pareamento da sincronização; pedida na hora, e o app funciona sem ela. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <application
         android:label="Chamados"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar"

@@ -16,8 +16,13 @@ use std::{
 };
 
 use chamados_app::{
-    batch::send_messages, download::download_attachments, listing::narrow, pdf::text_to_pdf,
-    syncing::sync_round, AppError,
+    batch::send_messages,
+    download::download_attachments,
+    listing::narrow,
+    pairing::{qr_text, Pairing},
+    pdf::text_to_pdf,
+    syncing::sync_round,
+    AppError,
 };
 use chamados_core::{
     validate_title,
@@ -390,6 +395,9 @@ enum KeyCommand {
         #[arg(long)]
         force: bool,
     },
+    /// Mostra o QR (e o texto) que leva a chave e o bucket ao app Android; as credenciais do bucket
+    /// não vão nele. O QR contém a chave: mostre-o só a quem vai lê-lo.
+    Pair,
     /// Informa a fonte da chave e se ela existe.
     Status,
 }
@@ -1679,7 +1687,7 @@ fn sync_key(
     prompt: &mut dyn Prompt,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
-    let (_, source) = key_source(paths)?;
+    let (settings, source) = key_source(paths)?;
     match command {
         KeyCommand::Generate { force } => {
             let source = unlock(source, prompt, true)?;
@@ -1690,6 +1698,15 @@ fn sync_key(
             let source = unlock(source, prompt, false)?;
             let key = load_key(&source)?.ok_or_else(|| no_key(&source))?;
             writeln!(out, "{}", key.to_hex())?;
+        }
+        KeyCommand::Pair => {
+            let source = unlock(source, prompt, false)?;
+            let key = load_key(&source)?.ok_or_else(|| no_key(&source))?;
+            let uri = Pairing::from_settings(&settings, key)?.to_uri();
+            writeln!(out, "{}", qr_text(&uri)?)?;
+            writeln!(out, "{uri}")?;
+            writeln!(out)?;
+            writeln!(out, "{PAIR_NOTE}")?;
         }
         KeyCommand::Import { force } => {
             let key = Key::from_hex(&read_text(None, input)?)?;
@@ -1706,6 +1723,7 @@ fn sync_key(
     Ok(())
 }
 
+const PAIR_NOTE: &str = "No app: Configurações > Sincronização > Ler QR (ou cole o texto acima). O texto e o QR contêm a chave de criptografia: não os compartilhe. As credenciais do bucket não estão nele; informe-as no app.";
 const AUTOMATION_NOTE: &str = "Dica: o chaveiro do sistema só abre com a sessão do usuário; para rodar sozinho, guarde a chave em arquivo (`chamados sync setup --key-source file`) ou na variável CHAMADOS_SYNC_KEY. Uma chave com frase-senha não serve para isso.";
 const SERVICE_UNIT: &str = "chamados-sync.service";
 const TIMER_UNIT: &str = "chamados-sync.timer";
@@ -4690,6 +4708,40 @@ linha com acentuação
         assert!(err.contains("read only"));
         let (_, out, _) = run_args(&["sync", "key", "status"], &paths);
         assert!(out.starts_with("fonte: env"));
+    }
+
+    #[test]
+    fn sync_key_pair_shows_a_qr_for_a_bucket_and_refuses_a_folder() {
+        let root = tempdir().unwrap();
+        let (_dir, paths) = paths();
+        let key_file = root.path().join("k");
+        let (code, _, err) = run_args(&["sync", "key", "pair"], &paths);
+        assert_eq!(code, 1);
+        assert!(err.contains("nenhuma chave"), "{err}");
+
+        // A folder cannot be paired: it does not exist on another device.
+        setup_sync(&paths, &root.path().join("nuvem"), &key_file);
+        run_args(&["sync", "key", "generate"], &paths);
+        let (code, _, err) = run_args(&["sync", "key", "pair"], &paths);
+        assert_eq!(code, 1);
+        assert!(err.contains("só um bucket"), "{err}");
+
+        let args = s3_setup_args(
+            "https://conta.r2.cloudflarestorage.com",
+            key_file.to_str().unwrap(),
+        );
+        assert_eq!(run_args(&args, &paths).0, 0);
+        let (code, out, err) = run_args(&["sync", "key", "pair"], &paths);
+        assert_eq!((code, err.as_str()), (0, ""));
+        assert!(out.contains('█') && out.contains("chamados-sync://pareamento?v=1&chave="));
+        assert!(out.contains("bucket=cofre") && out.contains("prefixo=dados"));
+        assert!(out.contains("não os compartilhe"));
+        let uri = out
+            .lines()
+            .find(|line| line.starts_with("chamados-sync:"))
+            .unwrap();
+        let (_, exported, _) = run_args(&["sync", "key", "export"], &paths);
+        assert_eq!(Pairing::parse(uri).unwrap().key.to_hex(), exported.trim());
     }
 
     trait OwnedStrings {

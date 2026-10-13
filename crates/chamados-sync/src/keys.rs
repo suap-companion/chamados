@@ -228,7 +228,7 @@ fn check_private(path: &std::path::Path) -> Result<(), SyncError> {
     Ok(())
 }
 
-fn write_private(path: &std::path::Path, content: &str) -> Result<(), SyncError> {
+pub(crate) fn write_private(path: &std::path::Path, content: &str) -> Result<(), SyncError> {
     fs::create_dir_all(path.parent().unwrap_or(std::path::Path::new(".")))?;
     #[cfg(unix)]
     {

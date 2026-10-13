@@ -17,6 +17,8 @@ import uniffi.chamados_mobile.ListQuery
 import uniffi.chamados_mobile.Queue
 import uniffi.chamados_mobile.ShareJob
 import uniffi.chamados_mobile.ShareKind
+import uniffi.chamados_mobile.SyncSetup
+import uniffi.chamados_mobile.SyncState
 import uniffi.chamados_mobile.TicketSummary
 import uniffi.chamados_mobile.TicketView
 
@@ -31,6 +33,7 @@ sealed interface Screen {
     data class Detail(val id: String) : Screen
     data object Settings : Screen
     data object NewTicket : Screen
+    data object Sync : Screen
 }
 
 /** O que se pode fazer num chamado, na tela de detalhe. */
@@ -110,6 +113,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var serviceId by mutableStateOf(CoreAccess.serviceId(application))
     var interested by mutableStateOf(CoreAccess.interested(application))
 
+    // Títulos locais (número do chamado → título)
+    var titles by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
+
+    // Sincronização
+    var syncState by mutableStateOf<SyncState?>(null)
+        private set
+    var syncBusy by mutableStateOf(false)
+        private set
+    var syncMessage by mutableStateOf<String?>(null)
+    var syncIsError by mutableStateOf(false)
+        private set
+    var shownKey by mutableStateOf<String?>(null)
+
     init {
         start()
     }
@@ -145,6 +162,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openTickets() {
         screen = Screen.Tickets
         refresh()
+        loadTitles()
+    }
+
+    /** Lê os títulos locais do disco (o app e a sincronização os mudam). */
+    fun loadTitles() {
+        viewModelScope.launch {
+            runCatching { open().titles() }.onSuccess { found -> titles = found.associate { it.id to it.title } }
+        }
+    }
+
+    /** Dá (ou, com texto vazio, tira) o título local do chamado. */
+    fun saveTitle(id: String, text: String) {
+        viewModelScope.launch {
+            try {
+                if (text.isBlank()) open().removeTitle(id) else open().setTitle(id, text)
+                actionIsError = false
+                actionMessage = if (text.isBlank()) "Título removido." else "Título salvo."
+                loadTitles()
+            } catch (error: Throwable) {
+                actionIsError = true
+                actionMessage = error.readable()
+            }
+        }
     }
 
     fun chooseQueue(next: Queue) {
@@ -388,6 +428,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             is Screen.Detail -> screen = Screen.Tickets
             Screen.NewTicket -> screen = Screen.Tickets
             Screen.Settings -> start()
+            Screen.Sync -> screen = Screen.Settings
             else -> Unit
         }
     }
@@ -396,6 +437,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         screen = Screen.Settings
     }
 
+    /** Roda uma operação da sincronização e mostra o resultado; `done` diz o que foi feito. */
+    private fun syncTask(done: String?, block: suspend (Chamados) -> String?) {
+        viewModelScope.launch {
+            syncBusy = true
+            syncMessage = null
+            try {
+                val result = block(open())
+                syncIsError = false
+                syncMessage = result ?: done
+            } catch (error: Throwable) {
+                syncIsError = true
+                syncMessage = error.readable()
+            } finally {
+                runCatching { syncState = open().syncState() }
+                syncBusy = false
+            }
+        }
+    }
+
+    fun openSync() {
+        screen = Screen.Sync
+        shownKey = null
+        syncMessage = null
+        syncTask(null) { null }
+    }
+
+    fun saveBucket(setup: SyncSetup) = syncTask("Bucket guardado.") { it.syncSetup(setup); null }
+
+    fun saveCredentials(id: String, secret: String) =
+        syncTask("Credenciais guardadas.") { it.syncSetCredentials(id, secret); null }
+
+    /** Aplica o texto de um pareamento (o do QR); a chave existente só é trocada com `replace`. */
+    fun applyPairing(text: String, replace: Boolean) = syncTask("Pareado: bucket e chave guardados. Falta só informar as credenciais.") {
+        check(replace || it.syncState().hasKey.not()) { "Já existe uma chave neste aparelho." }
+        it.syncApplyPairing(text)
+        null
+    }
+
+    fun generateKey(replace: Boolean) = syncTask("Chave criada.") { it.syncGenerateKey(replace); null }
+
+    fun importKey(hex: String, replace: Boolean) = syncTask("Chave guardada.") { it.syncImportKey(hex, replace); null }
+
+    fun revealKey() = syncTask(null) {
+        shownKey = it.syncKeyHex()
+        null
+    }
+
+    fun syncNow() = syncTask(null) {
+        val report = it.syncNow()
+        titles = it.titles().associate { item -> item.id to item.title }
+        "Sincronizado: ${report.profiles} perfil(is), ${report.localChanges} alteração(ões) aqui, nuvem " +
+            if (report.uploaded) "atualizada." else "já estava em dia."
+    }
+
+    fun forgetSync() = syncTask("Sincronização desligada neste aparelho.") { it.syncForget(); shownKey = null; null }
+
     fun changeBaseUrl(url: String) {
         val clean = url.trim().let { if (it.endsWith("/")) it else "$it/" }
         CoreAccess.saveBaseUrl(getApplication(), clean)
@@ -403,6 +500,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         core = null
         listError = null
         tickets = emptyList()
+        titles = emptyMap()
         start()
     }
 }

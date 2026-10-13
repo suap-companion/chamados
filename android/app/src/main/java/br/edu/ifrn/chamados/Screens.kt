@@ -60,6 +60,7 @@ fun ChamadosApp(model: MainViewModel) {
         is Screen.Detail -> DetailScreen(model, screen.id)
         Screen.Settings -> SettingsScreen(model)
         Screen.NewTicket -> NewTicketScreen(model)
+        Screen.Sync -> SyncScreen(model)
     }
 }
 
@@ -170,6 +171,7 @@ fun TicketsScreen(model: MainViewModel) {
                         Card(Modifier.fillMaxWidth().clickable { model.openDetail(ticket.id) }) {
                             Column(Modifier.padding(12.dp)) {
                                 Text("#${ticket.id}  ${ticket.status.orEmpty()}", style = MaterialTheme.typography.labelLarge)
+                                model.titles[ticket.id]?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
                                 Text(ticket.subject ?: "(sem assunto)", style = MaterialTheme.typography.bodyLarge)
                             }
                         }
@@ -219,6 +221,7 @@ private fun Details(model: MainViewModel, view: TicketView) {
                 Text(field.value)
             }
         }
+        item { TitleSection(model, view.id) }
         item { ActionsSection(model, view) }
         if (view.attachments.isNotEmpty()) {
             item { Text("Anexos", style = MaterialTheme.typography.titleMedium) }
@@ -239,6 +242,24 @@ private fun Details(model: MainViewModel, view: TicketView) {
                     HorizontalDivider(Modifier.padding(top = 8.dp))
                 }
             }
+        }
+    }
+}
+
+/** O título local do chamado (só seu, o SUAP não tem): entra na lista e na sincronização. */
+@Composable
+private fun TitleSection(model: MainViewModel, id: String) {
+    var text by remember(id, model.titles[id]) { mutableStateOf(model.titles[id].orEmpty()) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            label = { Text("Título local (só seu)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Button(onClick = { model.saveTitle(id, text) }, enabled = text.trim() != model.titles[id].orEmpty()) {
+            Text(if (text.isBlank() && model.titles[id] != null) "Remover título" else "Salvar título")
         }
     }
 }
@@ -272,6 +293,7 @@ fun SettingsScreen(model: MainViewModel) {
                 OutlinedButton(onClick = { url = LOCAL_URL }) { Text("Local (emulador)") }
             }
             Button(onClick = { model.changeBaseUrl(url) }, modifier = Modifier.fillMaxWidth()) { Text("Salvar e entrar") }
+            OutlinedButton(onClick = model::openSync, modifier = Modifier.fillMaxWidth()) { Text("Sincronização entre dispositivos") }
             OutlinedButton(onClick = model::logout, modifier = Modifier.fillMaxWidth()) { Text("Sair (esquecer a sessão)") }
             Text("Versão ${uniffi.chamados_mobile.coreVersion()}", style = MaterialTheme.typography.labelMedium)
         }

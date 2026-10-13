@@ -3,7 +3,12 @@
 //! They are secrets: never written to `config.toml`, never synchronized, never printed. They come from
 //! environment variables (for automation) or from the system keyring.
 
-use crate::{keys::keyring_entry_named, SyncError};
+use std::{fs, path::Path};
+
+use crate::{
+    keys::{keyring_entry_named, write_private},
+    SyncError,
+};
 
 /// Environment variable with the access key id.
 pub const ACCESS_KEY_ENV: &str = "CHAMADOS_S3_ACCESS_KEY_ID";
@@ -72,6 +77,27 @@ impl S3Credentials {
     pub fn store(&self) -> Result<(), SyncError> {
         let text = format!("{}\n{}", self.access_key_id, self.secret_access_key);
         Ok(keyring_entry_named(KEYRING_USER)?.set_secret(text.as_bytes())?)
+    }
+
+    /// The credentials saved in `path` by [`S3Credentials::store_file`]; `None` if there is no file.
+    /// For systems without a keyring (Android), where the file lives in the app's private storage.
+    pub fn load_file(path: &Path) -> Result<Option<Self>, SyncError> {
+        match fs::read_to_string(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            found => Ok(Some(Self::parse(&found?)?)),
+        }
+    }
+
+    /// Saves the credentials in `path`, readable only by the owner (`0600` on Unix).
+    pub fn store_file(&self, path: &Path) -> Result<(), SyncError> {
+        write_private(
+            path,
+            &format!(
+                "{}
+{}",
+                self.access_key_id, self.secret_access_key
+            ),
+        )
     }
 
     /// A description that is safe to print: the length of each value and whether it looks malformed
@@ -195,5 +221,21 @@ mod tests {
         assert_eq!(format!("{:?}", credentials()), "S3Credentials(..)");
         let echoed = credentials().redact("erro: chave AKIA123 com segredo s3cr3t/valor recusada");
         assert_eq!(echoed, "erro: chave *** com segredo *** recusada");
+    }
+
+    #[test]
+    fn credentials_can_live_in_a_private_file() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("config").join("s3.txt");
+        assert_eq!(S3Credentials::load_file(&path).unwrap(), None);
+        credentials().store_file(&path).unwrap();
+        assert_eq!(
+            S3Credentials::load_file(&path).unwrap(),
+            Some(credentials())
+        );
+        std::fs::write(&path, "só uma linha").unwrap();
+        assert!(S3Credentials::load_file(&path).is_err());
+        // A folder where the file should be is an I/O error, not "no credentials".
+        assert!(S3Credentials::load_file(folder.path()).is_err());
     }
 }
