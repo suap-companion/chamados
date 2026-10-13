@@ -52,3 +52,17 @@ O objeto `Chamados(dataDir, baseUrl)` é o que o aplicativo usa; nada nele é es
 | `textToPdf(titulo, texto)` | texto como PDF, para anexar (o SUAP não aceita `.txt`) |
 
 `applyShare` valida o pedido inteiro antes de enviar qualquer coisa (erro = nada foi enviado). Os anexos vão antes da mensagem e o primeiro passo que falhar interrompe a sequência; o resultado traz cada passo e `completed`, que o app devolve em `resumeFrom` para repetir só o que falta. Os arquivos chegam como caminhos já copiados para a pasta do aplicativo (nada de bytes atravessando a ligação).
+
+## App v0: leitura (M3)
+
+O app em `android/` (Jetpack Compose, Material 3) abre no login e depois na lista de chamados.
+
+- **Login:** o SUAP é aberto num WebView (`accounts/login/`). Quando a navegação sai do login, o app lê os cookies do WebView, entrega a `Chamados.importSessionCookies` e confirma com `isAuthenticated`. A senha nunca passa pelo app, e o login com gov.br e 2FA continua funcionando.
+- **Lista:** abas Meus, Suporte (com busca no texto) e A fechar.
+- **Detalhe:** campos, linha do tempo e anexos; tocar num anexo baixa e abre no aplicativo escolhido (via `FileProvider`, pasta de cache).
+- **Configurações:** endereço do SUAP (IFRN ou `http://10.0.2.2:8000/`, o SUAP local visto do emulador); cada endereço tem sessão própria. "Sair" esquece a sessão.
+- **Sessão expirada:** uma falha de leitura com a sessão inválida volta ao login.
+
+No emulador, se o teclado virtual não aparecer (o emulador usa o teclado do PC), ligue "Usar teclado na tela" em Configurações → Sistema → Teclado → Teclado físico.
+
+Compilar e instalar: `sh scripts/build-android.sh`, depois `cd android && ./gradlew assembleDebug` e `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
