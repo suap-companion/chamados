@@ -350,6 +350,9 @@ fn validate_config(config: &SuapConfig) -> Result<(), SuapError> {
     }
 }
 
+/// How long cookies imported from a browser session are kept on disk (two weeks).
+const IMPORTED_COOKIE_SECONDS: u64 = 14 * 24 * 60 * 60;
+
 #[derive(Debug)]
 pub struct SessionStore {
     path: PathBuf,
@@ -371,6 +374,12 @@ impl SessionStore {
         })
     }
 
+    fn locked(&self) -> Result<std::sync::MutexGuard<'_, CookieStore>, SuapError> {
+        self.cookies
+            .lock()
+            .map_err(|_| SuapError::CookieStore("cookie store lock poisoned".to_owned()))
+    }
+
     pub fn cookie_provider(&self) -> Arc<CookieStoreMutex> {
         Arc::clone(&self.cookies)
     }
@@ -383,10 +392,7 @@ impl SessionStore {
         let temporary = self.path.with_extension("cookies.tmp");
         let file = fs::File::create(&temporary)?;
         let mut writer = std::io::BufWriter::new(file);
-        let cookies = self
-            .cookies
-            .lock()
-            .map_err(|_| SuapError::CookieStore("cookie store lock poisoned".to_owned()))?;
+        let cookies = self.locked()?;
         cookie_store::serde::json::save(&cookies, &mut writer)?;
         drop(cookies);
         writer.flush()?;
@@ -397,6 +403,34 @@ impl SessionStore {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Replaces the cookies with the ones of a browser session, given as the `Cookie` header the
+    /// browser would send (`a=b; c=d`, what Android's `CookieManager.getCookie` returns), as if they
+    /// had been set by `url`. Pairs that are not `name=value` are ignored; returns how many were kept.
+    /// Not saved: call [`SessionStore::save`].
+    pub fn import_cookie_header(&self, url: &Url, header: &str) -> Result<usize, SuapError> {
+        let mut store = self.locked()?;
+        store.clear();
+        let mut kept = 0;
+        for pair in header.split(';') {
+            let pair = pair.trim();
+            if !pair.contains('=') {
+                continue;
+            }
+            // The header carries no attributes. A cookie without an expiry is not saved to disk, so
+            // give them the usual lifetime of a Django session (the server still decides when the
+            // session ends) and make them valid for the whole site.
+            let Ok(cookie) = cookie_store::RawCookie::parse(format!(
+                "{pair}; Path=/; Max-Age={IMPORTED_COOKIE_SECONDS}"
+            )) else {
+                continue;
+            };
+            if store.insert_raw(&cookie, url).is_ok() {
+                kept += 1;
+            }
+        }
+        Ok(kept)
     }
 }
 
@@ -479,6 +513,14 @@ impl SuapClient {
             return Err(SuapError::AuthenticationFailed);
         }
         self.session.save().await
+    }
+
+    /// Adopts the session of a browser (the app's login WebView) from its `Cookie` header, replacing
+    /// the current one, and saves it. Use [`SuapClient::is_authenticated`] to check that it is valid.
+    pub async fn import_cookie_header(&self, header: &str) -> Result<usize, SuapError> {
+        let kept = self.session.import_cookie_header(&self.base_url, header)?;
+        self.session.save().await?;
+        Ok(kept)
     }
 
     pub async fn is_authenticated(&self) -> Result<bool, SuapError> {
@@ -1067,6 +1109,47 @@ mod tests {
         let (_dir, paths) = paths();
         let client = SuapClient::open(&paths, &config_for(&server)).unwrap();
         assert!(!client.is_authenticated().await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_browser_session_can_be_imported_from_its_cookie_header() {
+        use wiremock::matchers::header_regex;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .and(header_regex("cookie", "sessionid=abc"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(302).insert_header("location", LOGIN_PATH))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(LOGIN_PATH))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+        let (_dir, paths) = paths();
+        let client = SuapClient::open(&paths, &config_for(&server)).unwrap();
+        assert!(!client.is_authenticated().await.unwrap());
+
+        // Junk pairs are skipped; the rest is kept, saved and sent.
+        let kept = client
+            .import_cookie_header("sessionid=abc; csrftoken=xyz; sem-igual; =vazio;  ")
+            .await
+            .unwrap();
+        assert_eq!(kept, 2);
+        assert!(client.is_authenticated().await.unwrap());
+        assert!(client.session().path().exists());
+        // The saved session is what a later run (or the background worker) loads.
+        let again = SuapClient::open(&paths, &config_for(&server)).unwrap();
+        assert!(again.is_authenticated().await.unwrap());
+        // Importing again replaces the old cookies instead of adding to them.
+        assert_eq!(client.import_cookie_header("outro=1").await.unwrap(), 1);
+        assert!(!client.is_authenticated().await.unwrap());
+        assert_eq!(client.import_cookie_header("").await.unwrap(), 0);
     }
 
     #[tokio::test]

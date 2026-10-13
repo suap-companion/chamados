@@ -219,9 +219,10 @@ São as mesmas ações do `open --assume` / `open --start`, agora para chamados 
 ```bash
 chamados attach 559298 relatorio.pdf planilha.xlsx
 chamados attach 559298 foto.png --descricao "Tela do erro"
+echo "Log do erro..." | chamados attach 559298 -   # texto da entrada padrão, anexado como PDF
 ```
 
-Cada arquivo é um envio ao SUAP (o formulário dele aceita um por vez), com os mesmos tipos do `open --attach` (xlsx, xls, csv, docx, doc, pdf, jpg, jpeg, png). Todos os arquivos são lidos antes do primeiro envio, então um nome errado não deixa o chamado pela metade. A descrição (uma linha, até 80 caracteres) vale para todos os arquivos do comando e, sem ela, é o nome do arquivo. O SUAP só aceita anexo em chamados de serviços que permitem anexos e a quem pode ver o chamado; senão a recusa dele é mostrada. Para ver e baixar o que já está anexado, use `show` e `download`.
+Um `-` no lugar do arquivo anexa o texto da entrada padrão como `texto.pdf` (o SUAP não aceita `.txt`; o PDF é gerado localmente). Cada arquivo tem no máximo 10 MB (limite do SUAP, recusado antes do envio). Cada arquivo é um envio ao SUAP (o formulário dele aceita um por vez), com os mesmos tipos do `open --attach` (xlsx, xls, csv, docx, doc, pdf, jpg, jpeg, png). Todos os arquivos são lidos antes do primeiro envio, então um nome errado não deixa o chamado pela metade. A descrição (uma linha, até 80 caracteres) vale para todos os arquivos do comando e, sem ela, é o nome do arquivo. O SUAP só aceita anexo em chamados de serviços que permitem anexos e a quem pode ver o chamado; senão a recusa dele é mostrada. Para ver e baixar o que já está anexado, use `show` e `download`.
 
 ### Baixar anexos
 

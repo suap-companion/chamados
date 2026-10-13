@@ -35,6 +35,8 @@ const CLOSE_PATH_PREFIX: &str = "/centralservicos/fechar_chamado/";
 pub const ALLOWED_ATTACHMENT_EXTENSIONS: [&str; 9] = [
     "xlsx", "xls", "csv", "docx", "doc", "pdf", "jpg", "jpeg", "png",
 ];
+/// Largest attachment SUAP takes, in bytes (its default `DEFAULT_FILE_UPLOAD_MAX_SIZE`, 10 MB).
+pub const MAX_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024;
 /// Number of attachment slots in SUAP's "open ticket" form.
 pub const MAX_ATTACHMENTS: usize = 3;
 const ATTACHMENT_DESCRIPTION_MAX: usize = 80;
@@ -366,6 +368,13 @@ pub fn validate_attachments(attachments: &[Attachment]) -> Result<(), TicketErro
         )));
     }
     for attachment in attachments {
+        if attachment.bytes.len() > MAX_ATTACHMENT_BYTES {
+            return Err(TicketError::Source(format!(
+                "attachment {:?} is larger than {} MB",
+                attachment.file_name,
+                MAX_ATTACHMENT_BYTES / (1024 * 1024)
+            )));
+        }
         let extension = attachment
             .file_name
             .rsplit_once('.')
@@ -1921,6 +1930,20 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("unsupported type"));
+    }
+
+    #[test]
+    fn attachments_over_the_size_limit_are_refused_before_anything_is_sent() {
+        let file = |size: usize| Attachment {
+            file_name: "grande.pdf".to_owned(),
+            bytes: vec![0; size],
+        };
+        assert!(validate_attachments(&[file(MAX_ATTACHMENT_BYTES)]).is_ok());
+        let refused = validate_attachments(&[file(MAX_ATTACHMENT_BYTES + 1)]).unwrap_err();
+        assert_eq!(
+            refused.to_string(),
+            "ticket source error: attachment \"grande.pdf\" is larger than 10 MB"
+        );
     }
 
     #[tokio::test]
