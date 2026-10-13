@@ -1,0 +1,17 @@
+[package]
+name = "chamados-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chamados-core = { path = "../chamados-core" }
+chamados-sync = { path = "../chamados-sync" }
+suap-core = { path = "../suap-core" }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt"] }
+url = "2"
+wiremock = "0.6"

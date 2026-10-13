@@ -15,6 +15,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use chamados_app::{
+    batch::send_messages, download::download_attachments, listing::narrow, pdf::text_to_pdf,
+    syncing::sync_round, AppError,
+};
 use chamados_core::{
     validate_title,
     watch::{poll, Snapshot},
@@ -23,7 +27,7 @@ use chamados_core::{
     ORDERS, RELATIONS, STATUSES,
 };
 use chamados_sync::{
-    backend_from, key_exists, key_source_from, load_key, record_removal, store_key, sync_once,
+    backend_from, key_exists, key_source_from, load_key, record_removal, store_key,
     validate_settings, Key, KeySource, Passphrase, S3Credentials, SyncBackend, SyncLock,
     SyncOptions, DIRECTORY_BACKEND, PASSPHRASE_ENV, R2_BACKEND, S3_BACKEND,
 };
@@ -121,7 +125,7 @@ enum Command {
     Attach {
         /// Número do chamado.
         id: u64,
-        /// Arquivos a anexar (um envio por arquivo).
+        /// Arquivos a anexar (um envio por arquivo). `-` anexa o texto da entrada padrão, como um PDF.
         #[arg(required = true)]
         files: Vec<PathBuf>,
         /// Descrição (uma linha, até 80 caracteres), igual para todos os arquivos; por padrão, o nome do arquivo.
@@ -776,7 +780,7 @@ fn dispatch(
             id,
             files,
             descricao,
-        }) => attach(paths, id, &files, descricao.as_deref(), out),
+        }) => attach(paths, id, &files, descricao.as_deref(), input, out),
         Some(Command::Assign { id, para }) => assign(paths, id, &para, out),
         Some(Command::Escalate(args)) => hand_off(paths, args, Direction::Escalate, input, out),
         Some(Command::Return(args)) => hand_off(paths, args, Direction::Return, input, out),
@@ -1136,18 +1140,7 @@ fn list(
         .map_err(explain)?;
     let titles = TitleStore::open(paths.titles_file())?;
     // The local titles never leave this machine, so this filter is applied here.
-    let needle = args.titulo.map(|text| text.to_lowercase());
-    let matches_title = |id: &str| {
-        needle.as_ref().is_none_or(|needle| {
-            let title = titles.get(id).unwrap_or_default();
-            title.to_lowercase().contains(needle.as_str())
-        })
-    };
-    let tickets: Vec<_> = tickets
-        .into_iter()
-        .filter(|ticket| matches_title(&ticket.id))
-        .take(args.limite.unwrap_or(usize::MAX))
-        .collect();
+    let tickets = narrow(tickets, &titles, args.titulo.as_deref(), args.limite);
     if args.json {
         let local_title = |id: &str| titles.get(id).map(str::to_owned);
         let json = render::tickets_json(&tickets, &local_title);
@@ -1219,48 +1212,35 @@ fn send_message(
     let text = read_text(args.message, input)?;
     let (runtime, client) = connect(paths)?;
     let source = SuapTicketSource::new(&client, TicketQueue::Support);
-    let mut ids = Vec::new();
-    for id in args.ids {
-        if !ids.contains(&id) {
-            ids.push(id);
-        }
+    let report = runtime
+        .block_on(send_messages(&source, &args.ids, kind, &text))
+        .map_err(explain)?;
+    let total = report.sent.len() + report.failed.len();
+    for id in &report.sent {
+        let message = match kind {
+            Message::Comment => format!("Comentário adicionado ao chamado #{id}."),
+            Message::InternalNote => format!("Nota interna adicionada ao chamado #{id}."),
+        };
+        writeln!(out, "{message}")?;
     }
-    let mut failures = Vec::new();
-    for id in &ids {
-        let id = id.to_string();
-        match runtime.block_on(source.add_message(&id, kind, &text)) {
-            Ok(()) => {
-                let message = match kind {
-                    Message::Comment => format!("Comentário adicionado ao chamado #{id}."),
-                    Message::InternalNote => format!("Nota interna adicionada ao chamado #{id}."),
-                };
-                writeln!(out, "{message}")?;
-            }
-            Err(error @ TicketError::Suap(SuapError::NotAuthenticated)) => {
-                return Err(explain(error));
-            }
-            Err(error) => failures.push((id, explain(error).to_string())),
-        }
+    if total == 1 && !report.failed.is_empty() {
+        return Err(report.failed[0].1.clone().into());
     }
-    if ids.len() == 1 && !failures.is_empty() {
-        return Err(failures.remove(0).1.into());
-    }
-    if ids.len() > 1 {
-        let sent = ids.len() - failures.len();
-        let summary = format!("Resumo: {sent} de {} enviados.", ids.len());
+    if total > 1 {
+        let summary = format!("Resumo: {} de {total} enviados.", report.sent.len());
         writeln!(out, "{summary}")?;
     }
-    if failures.is_empty() {
+    if report.failed.is_empty() {
         return Ok(());
     }
-    let details: Vec<String> = failures
+    let details: Vec<String> = report
+        .failed
         .iter()
         .map(|(id, error)| format!("  #{id}: {error}"))
         .collect();
     Err(format!(
-        "falhou em {} de {} chamados:\n{}",
-        failures.len(),
-        ids.len(),
+        "falhou em {} de {total} chamados:\n{}",
+        report.failed.len(),
         details.join("\n")
     )
     .into())
@@ -1292,69 +1272,6 @@ fn suspend(
     Ok(())
 }
 
-/// Names Windows reserves for devices, whatever the extension.
-const RESERVED_NAMES: [&str; 22] = [
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-];
-const MAX_FILE_NAME_CHARS: usize = 150;
-
-/// A file name that is safe to create in a chosen folder, from a name SUAP gave: no folders, no
-/// characters the file systems refuse, no reserved or empty names. `fallback` is used when nothing
-/// usable is left.
-fn safe_file_name(name: &str, fallback: &str) -> String {
-    let last = name.rsplit(['/', '\\']).next().unwrap_or_default();
-    let cleaned: String = last
-        .chars()
-        .map(|c| {
-            if c.is_control() || "<>:\"|?*".contains(c) {
-                '_'
-            } else {
-                c
-            }
-        })
-        .take(MAX_FILE_NAME_CHARS)
-        .collect();
-    let cleaned = cleaned.trim().trim_end_matches('.').trim().to_owned();
-    if cleaned.is_empty() {
-        return fallback.to_owned();
-    }
-    let stem = cleaned.split('.').next().unwrap_or_default().to_uppercase();
-    if RESERVED_NAMES.contains(&stem.as_str()) {
-        return format!("_{cleaned}");
-    }
-    cleaned
-}
-
-/// `name` with the extension of the stored file added when it does not already end with it. The
-/// name SUAP shows for an attachment is the description given to it, which may have no extension.
-fn with_stored_extension(name: &str, stored_name: &str) -> String {
-    let extension = match stored_name.rsplit_once('.') {
-        Some((stem, extension)) if !stem.is_empty() && !extension.is_empty() => extension,
-        _ => return name.to_owned(),
-    };
-    let suffix = format!(".{}", extension.to_lowercase());
-    if name.to_lowercase().ends_with(&suffix) {
-        return name.to_owned();
-    }
-    format!("{name}.{extension}")
-}
-
-/// `name` made different from every name in `taken` by adding " (2)", " (3)"... before the extension.
-fn unique_name(name: &str, taken: &[String]) -> String {
-    let (stem, extension) = match name.rfind('.') {
-        Some(dot) if dot > 0 => name.split_at(dot),
-        _ => (name, ""),
-    };
-    let mut candidate = name.to_owned();
-    let mut number = 1;
-    while taken.contains(&candidate) {
-        number += 1;
-        candidate = format!("{stem} ({number}){extension}");
-    }
-    candidate
-}
-
 fn download(
     paths: &AppPaths,
     id: u64,
@@ -1368,63 +1285,15 @@ fn download(
     let details = runtime
         .block_on(source.get_ticket(&id.to_string()))
         .map_err(explain)?;
-    let total = details.attachments.len();
-    if total == 0 {
-        return Err(format!("o chamado #{id} não tem anexos").into());
-    }
-    let mut numbers: Vec<usize> = if wanted.is_empty() {
-        (1..=total).collect()
-    } else {
-        wanted.to_vec()
-    };
-    let mut seen = Vec::new();
-    numbers.retain(|number| {
-        let first = !seen.contains(number);
-        seen.push(*number);
-        first
-    });
-    if let Some(bad) = numbers.iter().find(|number| !(1..=total).contains(number)) {
-        return Err(format!("o anexo {bad} não existe: o chamado #{id} tem {total}").into());
-    }
-
-    // Download everything first: the name SUAP shows may only be a description, and the kind of
-    // file is known from the name it is stored under. Nothing is written to disk before every
-    // destination is checked.
     let folder = folder.unwrap_or(PathBuf::from("."));
-    let mut files = Vec::new();
-    for number in &numbers {
-        let link = &details.attachments[number - 1];
-        let file = runtime
-            .block_on(source.download_attachment(link))
-            .map_err(explain)?;
-        files.push(file);
-    }
-    let mut names: Vec<String> = Vec::new();
-    for (number, file) in numbers.iter().zip(&files) {
-        let link = &details.attachments[number - 1];
-        let safe = safe_file_name(&link.name, &format!("anexo-{number}"));
-        let name = unique_name(&with_stored_extension(&safe, &file.stored_name), &names);
-        names.push(name);
-    }
-    let existing: Vec<String> = names
-        .iter()
-        .filter(|name| folder.join(name).exists())
-        .cloned()
-        .collect();
-    if !force && !existing.is_empty() {
-        return Err(format!(
-            "já existe em {}: {} (use --force para sobrescrever)",
-            folder.display(),
-            existing.join(", ")
-        )
-        .into());
-    }
-    fs::create_dir_all(&folder)?;
-    for ((number, name), file) in numbers.iter().zip(&names).zip(&files) {
-        let target = folder.join(name);
-        fs::write(&target, &file.bytes)?;
-        let size = file.bytes.len();
-        writeln!(out, "Anexo {number}: {} ({size} bytes)", target.display())?;
+    let saved = runtime
+        .block_on(download_attachments(
+            &source, &details, wanted, &folder, force,
+        ))
+        .map_err(app_error)?;
+    for file in saved {
+        let (number, path, size) = (file.number, file.path.display(), file.size);
+        writeln!(out, "Anexo {number}: {path} ({size} bytes)")?;
     }
     Ok(())
 }
@@ -1434,10 +1303,11 @@ fn attach(
     id: u64,
     files: &[PathBuf],
     description: Option<&str>,
+    input: &mut dyn Read,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
     // Read every file before sending any, so a typo does not leave the ticket half attached.
-    let attachments = read_attachments(files)?;
+    let attachments = read_attachments(files, input)?;
     let (runtime, client) = connect(paths)?;
     let source = SuapTicketSource::new(&client, TicketQueue::Support);
     let id = id.to_string();
@@ -1934,16 +1804,16 @@ fn sync_run(
     let backend = backend_from(&settings, credentials)?;
     let source = unlock(source, prompt, false)?;
     let key = load_key(&source)?.ok_or_else(|| no_key(&source))?;
-    let Some(_lock) = SyncLock::acquire(&paths.sync_lock_file())? else {
-        if !args.quiet {
-            writeln!(out, "{LOCK_HELD_NOTE}")?;
-        }
-        return Ok(());
-    };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     if args.check {
+        let Some(_lock) = SyncLock::acquire(&paths.sync_lock_file())? else {
+            if !args.quiet {
+                writeln!(out, "{LOCK_HELD_NOTE}")?;
+            }
+            return Ok(());
+        };
         let probed = runtime.block_on(backend.probe_conditional_writes())?;
         let name = settings.backend.as_deref().unwrap_or_default();
         if args.json {
@@ -1964,7 +1834,12 @@ fn sync_run(
         only: args.only.as_deref(),
         dry_run: args.dry_run,
     };
-    let report = runtime.block_on(sync_once(paths, &backend, &key, &options))?;
+    let Some(report) = runtime.block_on(sync_round(paths, &backend, &key, &options))? else {
+        if !args.quiet {
+            writeln!(out, "{LOCK_HELD_NOTE}")?;
+        }
+        return Ok(());
+    };
     if args.quiet {
         return Ok(());
     }
@@ -2147,9 +2022,21 @@ fn read_text(value: Option<String>, input: &mut dyn Read) -> Result<String, Box<
     Ok(text)
 }
 
-fn read_attachments(files: &[PathBuf]) -> Result<Vec<Attachment>, Box<dyn Error>> {
+/// The files to attach. A `-` stands for the text on standard input (read once), made a PDF.
+fn read_attachments(
+    files: &[PathBuf],
+    input: &mut dyn Read,
+) -> Result<Vec<Attachment>, Box<dyn Error>> {
     let mut attachments = Vec::new();
     for path in files {
+        if path.as_os_str() == "-" {
+            let text = read_text(None, input)?;
+            attachments.push(Attachment {
+                file_name: "texto.pdf".to_owned(),
+                bytes: text_to_pdf(None, &text),
+            });
+            continue;
+        }
         let bytes = fs::read(path)
             .map_err(|error| format!("não foi possível ler o anexo {}: {error}", path.display()))?;
         let file_name = path
@@ -2193,7 +2080,7 @@ fn open(
         interested,
         extra_fields: args.fields,
         copy_email: !args.no_email_copy,
-        attachments: read_attachments(&args.attach)?,
+        attachments: read_attachments(&args.attach, &mut std::io::empty())?,
     };
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -2275,6 +2162,14 @@ fn indent_continuation(text: &str, prefix: &str) -> String {
         }
         indented
     })
+}
+
+/// Turns the errors of the application services into user-facing messages.
+fn app_error(error: AppError) -> Box<dyn Error> {
+    match error {
+        AppError::Ticket(error) => explain(error),
+        other => other.into(),
+    }
 }
 
 /// Turns ticket errors into user-facing messages.
@@ -3089,66 +2984,6 @@ mod tests {
         let (code, _, err) = run_args(&["suspend", "9", "-m", "x"], &paths);
         assert_eq!(code, 1);
         assert!(err.contains("ticket 9 cannot be suspended"));
-    }
-
-    #[test]
-    fn file_names_from_suap_are_made_safe_and_unique() {
-        for (given, expected) in [
-            ("dados.csv", "dados.csv"),
-            ("relatório final.pdf", "relatório final.pdf"),
-            ("../../etc/passwd", "passwd"),
-            ("C:\\Users\\x\\segredo.docx", "segredo.docx"),
-            ("a<b>c:d\"e|f?g*h.txt", "a_b_c_d_e_f_g_h.txt"),
-            ("  espaço.png  ", "espaço.png"),
-            ("termina.com.ponto...", "termina.com.ponto"),
-            ("con.txt", "_con.txt"),
-            ("NUL", "_NUL"),
-            ("Lpt1.pdf", "_Lpt1.pdf"),
-            ("com10.txt", "com10.txt"),
-            ("", "anexo-3"),
-            ("...", "anexo-3"),
-            ("..", "anexo-3"),
-            ("pasta/", "anexo-3"),
-            ("tab\there.txt", "tab_here.txt"),
-        ] {
-            assert_eq!(safe_file_name(given, "anexo-3"), expected, "{given:?}");
-        }
-        let long = format!("{}.pdf", "x".repeat(400));
-        assert_eq!(
-            safe_file_name(&long, "f").chars().count(),
-            MAX_FILE_NAME_CHARS
-        );
-
-        for (name, stored, expected) in [
-            ("Tela do erro", "foto-3f2a.png", "Tela do erro.png"),
-            ("dados.csv", "dados-3f2a.csv", "dados.csv"),
-            ("DADOS.CSV", "dados-3f2a.csv", "DADOS.CSV"),
-            ("Versão 1.2", "relatorio.pdf", "Versão 1.2.pdf"),
-            ("relatorio.pdf", "relatorio.docx", "relatorio.pdf.docx"),
-            ("sem extensão", "anexo", "sem extensão"),
-            ("sem extensão", "", "sem extensão"),
-            ("sem extensão", ".oculto", "sem extensão"),
-            ("sem extensão", "arquivo.", "sem extensão"),
-        ] {
-            assert_eq!(
-                with_stored_extension(name, stored),
-                expected,
-                "{name} {stored}"
-            );
-        }
-
-        let taken = [
-            "a.csv".to_owned(),
-            "a (2).csv".to_owned(),
-            "semponto".to_owned(),
-        ];
-        assert_eq!(unique_name("b.csv", &taken), "b.csv");
-        assert_eq!(unique_name("a.csv", &taken), "a (3).csv");
-        assert_eq!(unique_name("semponto", &taken), "semponto (2)");
-        assert_eq!(
-            unique_name(".oculto", &[".oculto".to_owned()]),
-            ".oculto (2)"
-        );
     }
 
     const ATTACHED_TICKET: &str = r#"<main id="content"><div class="title-container"><h2>Chamado 5</h2></div>
@@ -4211,6 +4046,74 @@ mod tests {
     }
 
     #[test]
+    fn attach_can_send_the_text_on_standard_input_as_a_pdf() {
+        let (_dir, paths) = paths();
+        let (runtime, server) = bare_server();
+        run_args(&["profile", "init", "--base-url", &server.uri()], &paths);
+        let form = r#"<form method="POST"><input type="hidden" name="csrfmiddlewaretoken" value="tok">
+            <input name="descricao"><input type="file" name="anexo"></form>"#;
+        mount_text(
+            &runtime,
+            &server,
+            "GET",
+            "/centralservicos/adicionar_anexo/5/",
+            ResponseTemplate::new(200).set_body_string(form),
+        );
+        mount_text(
+            &runtime,
+            &server,
+            "POST",
+            "/centralservicos/adicionar_anexo/5/",
+            ResponseTemplate::new(200),
+        );
+        let (code, out, err) = run_with_input(
+            &["attach", "5", "-", "--descricao", "Log do erro"],
+            &paths,
+            "linha 1
+linha com acentuação
+",
+        );
+        assert_eq!((code, err.as_str()), (0, ""));
+        assert_eq!(
+            out,
+            "Chamado #5: anexo texto.pdf enviado.
+"
+        );
+        let posts = runtime.block_on(server.received_requests()).unwrap();
+        let body = posts
+            .iter()
+            .find(|request| request.method == wiremock::http::Method::POST)
+            .map(|request| request.body.clone())
+            .unwrap();
+        let sent = String::from_utf8_lossy(&body).into_owned();
+        assert!(
+            sent.contains("filename=\"texto.pdf\"") && sent.contains("%PDF-1.4"),
+            "{sent}"
+        );
+        assert!(
+            sent.contains("Log do erro") && sent.contains("(linha 1) Tj"),
+            "{sent}"
+        );
+
+        // Nothing on standard input is an error before anything is sent.
+        let (code, _, err) = run_with_input(
+            &["attach", "5", "-"],
+            &paths,
+            " 
+",
+        );
+        assert_eq!(code, 1);
+        assert!(err.contains("texto não informado"), "{err}");
+        // `open --attach -` has no standard input to use for it (that is for the description).
+        let (code, _, err) = run_args(
+            &["open", "1", "-d", "x", "--interested", "1", "-a", "-"],
+            &paths,
+        );
+        assert_eq!(code, 1);
+        assert!(err.contains("texto não informado"), "{err}");
+    }
+
+    #[test]
     fn attach_sends_each_file_and_stops_at_the_first_problem() {
         let (dir, paths) = paths();
         let (runtime, server) = bare_server();
@@ -4701,6 +4604,11 @@ mod tests {
         let (code, out, _) = run_args(&["sync"], &paths);
         assert!(code == 0 && out.contains("Outra sincronização já está em andamento"));
         let (code, out, _) = run_args(&["sync", "--quiet"], &paths);
+        assert_eq!((code, out.as_str()), (0, ""));
+        // The same holds for the check, which also needs the lock.
+        let (code, out, _) = run_args(&["sync", "--check"], &paths);
+        assert!(code == 0 && out.contains("Outra sincronização já está em andamento"));
+        let (code, out, _) = run_args(&["sync", "--check", "--quiet"], &paths);
         assert_eq!((code, out.as_str()), (0, ""));
         std::fs::remove_file(paths.sync_lock_file()).unwrap();
 

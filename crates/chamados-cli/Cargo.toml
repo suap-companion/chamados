@@ -10,6 +10,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+# Serviços de aplicação compartilhados com os aplicativos móveis (download, lote, PDF, rodadas).
+chamados-app = { path = "../chamados-app" }
 chamados-core = { path = "../chamados-core" }
 chamados-sync = { path = "../chamados-sync" }
 # Reads a secret from the terminal without echoing it (credentials prompt).
