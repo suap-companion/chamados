@@ -21,6 +21,7 @@ const APPLICATION: &str = "chamados";
 const CONFIG_FILE: &str = "config.toml";
 const SESSION_FILE: &str = "session.cookies";
 const TITLES_FILE: &str = "titles.json";
+const ARCHIVE_FILE: &str = "archive.json";
 const CONFIG_DIR_IN_HOME: [&str; 2] = [".config", "suap"];
 const LOGIN_PATH: &str = "/accounts/login/";
 
@@ -91,6 +92,14 @@ impl AppPaths {
             return self.data_dir.join(TITLES_FILE);
         }
         self.data_dir.join(format!("titles-{}.json", self.profile))
+    }
+
+    /// Tickets archived on this machine, per profile (`archive.json` for `default`, else `archive-<profile>.json`).
+    pub fn archive_file(&self) -> PathBuf {
+        if self.profile == DEFAULT_PROFILE {
+            return self.data_dir.join(ARCHIVE_FILE);
+        }
+        self.data_dir.join(format!("archive-{}.json", self.profile))
     }
 
     /// What `chamados watch` last saw, per profile (`watch.json`, else `watch-<profile>.json`).
@@ -771,6 +780,8 @@ mod tests {
             .ends_with("session-local-1.cookies"));
         assert!(default_paths.titles_file().ends_with("titles.json"));
         assert!(local_paths.titles_file().ends_with("titles-local-1.json"));
+        assert!(default_paths.archive_file().ends_with("archive.json"));
+        assert!(local_paths.archive_file().ends_with("archive-local-1.json"));
         assert!(default_paths.watch_file().ends_with("watch.json"));
         assert!(local_paths.watch_file().ends_with("watch-local-1.json"));
 

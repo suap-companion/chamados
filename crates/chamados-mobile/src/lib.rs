@@ -17,11 +17,12 @@ use std::{
 use chamados_app::{
     apply::{apply_share, ShareAction, ShareRequest},
     download::download_attachments,
+    listing::narrow,
     share::SharedFile,
 };
 use chamados_core::{
-    parse_ticket_list, Attachment, Direction, Reclassification, SuapTicketSource, TicketFilter,
-    TicketQueue, TicketSource,
+    parse_ticket_list, ArchiveStore, Attachment, Direction, Reclassification, SuapTicketSource,
+    TicketFilter, TicketQueue, TicketSource, TitleStore,
 };
 use suap_core::{AppPaths, SuapClient, SuapConfig};
 use url::Url;
@@ -112,9 +113,31 @@ impl Queue {
     }
 }
 
+/// Quais chamados a lista mostra, quanto ao que a pessoa arquivou neste aparelho.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Enum)]
+pub enum ArchiveView {
+    /// Tudo menos os arquivados (as listas de sempre).
+    #[default]
+    Hide,
+    /// Só os arquivados.
+    Only,
+}
+
+impl ArchiveView {
+    fn app(self) -> chamados_app::listing::ArchiveView {
+        match self {
+            Self::Hide => chamados_app::listing::ArchiveView::Hide,
+            Self::Only => chamados_app::listing::ArchiveView::Only,
+        }
+    }
+}
+
 /// Filtros da listagem; tudo é opcional.
 #[derive(Debug, Clone, Default, uniffi::Record)]
 pub struct ListQuery {
+    /// Só os chamados cujo título local contém este texto (sem diferenciar maiúsculas).
+    pub title: Option<String>,
+    pub archive: ArchiveView,
     pub text: Option<String>,
     pub statuses: Vec<String>,
     pub all_statuses: bool,
@@ -336,7 +359,11 @@ impl Chamados {
         query: ListQuery,
     ) -> Result<Vec<TicketSummary>, ChamadosError> {
         let source = SuapTicketSource::new(&self.client, queue.core());
+        let (needle, view) = (query.title.clone(), query.archive.app());
         let tickets = source.list_filtered(&query.core()).await.map_err(failed)?;
+        let titles = TitleStore::open(self.paths.titles_file()).map_err(failed)?;
+        let archive = ArchiveStore::open(self.paths.archive_file()).map_err(failed)?;
+        let tickets = narrow(tickets, &titles, &archive, view, needle.as_deref(), None);
         Ok(tickets
             .into_iter()
             .map(|ticket| TicketSummary {
@@ -735,6 +762,39 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(listed[0].id, "7");
+
+            // An archived ticket leaves the usual list and shows up in the archive view.
+            assert!(chamados.set_archived("7".to_owned(), true).unwrap());
+            let only = ListQuery {
+                archive: ArchiveView::Only,
+                ..ListQuery::default()
+            };
+            let usual = chamados.list(Queue::Mine, ListQuery::default()).await;
+            assert!(usual.unwrap().is_empty());
+            let archived = chamados.list(Queue::Mine, only).await.unwrap();
+            assert_eq!(archived[0].id, "7");
+            chamados
+                .set_title("7".to_owned(), "Rede".to_owned())
+                .unwrap();
+            let by_title = |title: &str| ListQuery {
+                archive: ArchiveView::Only,
+                title: Some(title.to_owned()),
+                ..ListQuery::default()
+            };
+            assert_eq!(
+                chamados
+                    .list(Queue::Mine, by_title("red"))
+                    .await
+                    .unwrap()
+                    .len(),
+                1
+            );
+            assert!(chamados
+                .list(Queue::Mine, by_title("moodle"))
+                .await
+                .unwrap()
+                .is_empty());
+            assert!(chamados.set_archived("7".to_owned(), false).unwrap());
 
             page(
                 &server,

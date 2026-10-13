@@ -3,14 +3,14 @@
 use chamados_app::{
     batch::{send_messages, BatchReport},
     download::download_attachments,
-    listing::narrow,
+    listing::{narrow, without_archived, ArchiveView},
     syncing::sync_round,
     watching::watch_once,
     AppError,
 };
 use chamados_core::{
-    watch::WatchEvent, Message, RemoteTicket, SuapTicketSource, TicketDetails, TicketFilter,
-    TicketQueue, TitleStore,
+    watch::WatchEvent, ArchiveStore, Message, RemoteTicket, SuapTicketSource, TicketDetails,
+    TicketFilter, TicketQueue, TitleStore,
 };
 use chamados_sync::{backend_from, Key, SyncOptions};
 use suap_core::{AppPaths, SuapClient, SuapConfig, SyncSettings};
@@ -204,13 +204,36 @@ fn narrowing_by_local_title_and_limit() {
     let all = || vec![ticket("1"), ticket("2"), ticket("3")];
     let ids =
         |tickets: Vec<RemoteTicket>| -> Vec<String> { tickets.into_iter().map(|t| t.id).collect() };
-    assert_eq!(ids(narrow(all(), &titles, None, None)), ["1", "2", "3"]);
-    assert_eq!(ids(narrow(all(), &titles, Some("MOODLE"), None)), ["1"]);
+    let mut archive = ArchiveStore::open(directory.path().join("archive.json")).unwrap();
+    let narrowed = |archive: &ArchiveStore, view, needle, limit| {
+        ids(narrow(all(), &titles, archive, view, needle, limit))
+    };
+    let hide = ArchiveView::Hide;
+    assert_eq!(narrowed(&archive, hide, None, None), ["1", "2", "3"]);
+    assert_eq!(narrowed(&archive, hide, Some("MOODLE"), None), ["1"]);
     assert_eq!(
-        ids(narrow(all(), &titles, Some("nada"), None)),
+        narrowed(&archive, hide, Some("nada"), None),
         Vec::<String>::new()
     );
-    assert_eq!(ids(narrow(all(), &titles, None, Some(2))), ["1", "2"]);
+    assert_eq!(narrowed(&archive, hide, None, Some(2)), ["1", "2"]);
+
+    // Archived tickets leave the usual lists and are the only ones in the archive view.
+    archive.set("2", true, 1).unwrap();
+    assert_eq!(narrowed(&archive, hide, None, None), ["1", "3"]);
+    assert_eq!(narrowed(&archive, ArchiveView::Only, None, None), ["2"]);
+    assert_eq!(
+        narrowed(&archive, ArchiveView::Only, Some("rede"), None),
+        ["2"]
+    );
+    assert!(narrowed(&archive, ArchiveView::Only, Some("moodle"), None).is_empty());
+
+    // Their watch events are not announced.
+    let event = |id: &str| WatchEvent::Left {
+        id: id.to_owned(),
+        status: None,
+    };
+    let kept = without_archived(vec![event("1"), event("2")], &archive);
+    assert_eq!(kept, [event("1")]);
 }
 
 #[tokio::test]

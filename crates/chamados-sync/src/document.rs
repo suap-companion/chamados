@@ -12,7 +12,7 @@
 
 use std::{collections::BTreeMap, fs};
 
-use chamados_core::{TitleEntry, TitleStore};
+use chamados_core::{ArchiveEntry, ArchiveStore, TitleEntry, TitleStore};
 use serde::{Deserialize, Serialize};
 use suap_core::{
     list_profiles, load_config, remove_config, save_config, AppPaths, OpenDefaults, SuapConfig,
@@ -66,6 +66,10 @@ impl SettingsEntry {
 pub struct ProfileDoc {
     pub settings: Option<SettingsEntry>,
     pub titles: BTreeMap<String, TitleEntry>,
+    /// Archived tickets (and unarchived ones, as tombstones). Absent in documents written by
+    /// versions before 0.35, which would drop it when they upload their own merge.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub archived: BTreeMap<String, ArchiveEntry>,
     /// When the profile was removed (milliseconds since the epoch), if it ever was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub removed_at: Option<u64>,
@@ -151,13 +155,24 @@ fn merge_profiles(left: &ProfileDoc, right: &ProfileDoc) -> ProfileDoc {
             }
         }
     }
+    let mut archived = left.archived.clone();
+    for (id, incoming) in &right.archived {
+        match archived.get(id) {
+            Some(existing) if !incoming.newer_than(existing) => {}
+            _ => {
+                archived.insert(id.clone(), incoming.clone());
+            }
+        }
+    }
     // Whatever was written before the removal belongs to the profile that no longer exists.
     if let Some(removed_at) = removed_at {
         titles.retain(|_, entry| entry.updated_at > removed_at);
+        archived.retain(|_, entry| entry.updated_at > removed_at);
     }
     ProfileDoc {
         settings,
         titles,
+        archived,
         removed_at,
     }
 }
@@ -192,11 +207,13 @@ pub fn collect_local(paths: &AppPaths, only: Option<&str>) -> Result<SyncDocumen
         }
         let profile_paths = paths.clone().with_profile(&name)?;
         let titles = TitleStore::open(profile_paths.titles_file())?;
+        let archive = ArchiveStore::open(profile_paths.archive_file())?;
         document.profiles.insert(
             name.clone(),
             ProfileDoc {
                 settings: Some(SettingsEntry::from_config(&config)),
                 titles: titles.entries().clone(),
+                archived: archive.entries().clone(),
                 removed_at: removals.get(&name).copied(),
             },
         );
@@ -221,11 +238,17 @@ pub struct ApplyReport {
     pub profiles_removed: usize,
     /// Title entries added or replaced.
     pub titles_updated: usize,
+    /// Archive entries added or replaced.
+    pub archived_updated: usize,
 }
 
 impl ApplyReport {
     pub fn total(&self) -> usize {
-        self.profiles_created + self.settings_updated + self.profiles_removed + self.titles_updated
+        self.profiles_created
+            + self.settings_updated
+            + self.profiles_removed
+            + self.titles_updated
+            + self.archived_updated
     }
 }
 
@@ -281,14 +304,27 @@ pub fn apply_merged(
         if write && changed > 0 {
             titles.save()?;
         }
+        let mut archive = ArchiveStore::open(profile_paths.archive_file())?;
+        let mut changed = 0;
+        for (id, entry) in &remote.archived {
+            changed += usize::from(archive.merge_entry(id, entry)?);
+        }
+        report.archived_updated += changed;
+        if write && changed > 0 {
+            archive.save()?;
+        }
     }
     Ok(report)
 }
 
-/// Deletes what a profile keeps on this machine: its settings, session and titles.
+/// Deletes what a profile keeps on this machine: its settings, session, titles and archive marks.
 fn delete_profile(paths: &AppPaths) -> Result<(), SyncError> {
     remove_config(paths)?;
-    for file in [paths.session_file(), paths.titles_file()] {
+    for file in [
+        paths.session_file(),
+        paths.titles_file(),
+        paths.archive_file(),
+    ] {
         if file.exists() {
             fs::remove_file(file)?;
         }
@@ -325,6 +361,7 @@ mod tests {
                 .iter()
                 .map(|(id, e)| ((*id).to_owned(), e.clone()))
                 .collect(),
+            archived: BTreeMap::new(),
         }
     }
 
@@ -640,7 +677,8 @@ mod tests {
                 profiles_created: 1,
                 settings_updated: 1,
                 profiles_removed: 0,
-                titles_updated: 2
+                titles_updated: 2,
+                archived_updated: 0
             }
         );
         assert_eq!(dry.total(), 4);
@@ -702,6 +740,72 @@ mod tests {
             removed_at: Some(at),
             ..profile(settings, titles)
         }
+    }
+
+    #[test]
+    fn archive_marks_merge_apply_and_follow_the_profile_removal() {
+        let archived = |on: bool, at: u64| ArchiveEntry {
+            archived: on,
+            updated_at: at,
+        };
+        let with_marks = |marks: &[(&str, ArchiveEntry)]| ProfileDoc {
+            archived: marks
+                .iter()
+                .map(|(id, entry)| ((*id).to_owned(), entry.clone()))
+                .collect(),
+            ..ProfileDoc::default()
+        };
+        // The newest mark wins, whichever side it comes from, and the order does not matter.
+        let a = with_marks(&[("1", archived(true, 5)), ("2", archived(true, 1))]);
+        let b = with_marks(&[("1", archived(false, 6)), ("3", archived(true, 2))]);
+        let merged = merge_profiles(&a, &b);
+        assert_eq!(merged, merge_profiles(&b, &a));
+        assert!(!merged.archived["1"].archived && merged.archived["2"].archived);
+        assert!(merged.archived["3"].archived);
+        let json = serde_json::to_string(&ProfileDoc::default()).unwrap();
+        assert!(
+            !json.contains("archived"),
+            "an empty set stays out of the document"
+        );
+        let old: ProfileDoc = serde_json::from_str(r#"{"settings":null,"titles":{}}"#).unwrap();
+        assert!(old.archived.is_empty());
+
+        // Marks written before the profile was removed go away with it.
+        let removed = ProfileDoc {
+            removed_at: Some(4),
+            ..ProfileDoc::default()
+        };
+        let kept = merge_profiles(&a, &removed);
+        assert_eq!(kept.archived.keys().collect::<Vec<_>>(), ["1"]);
+
+        // Applying brings the marks to the disk, counted and written only when asked.
+        let (_dir, paths) = paths();
+        save(&paths, "default", true, 5);
+        let remote = document(&[("default", with_marks(&[("1", archived(true, 5))]))]);
+        let dry = apply_merged(&paths, &remote, None, false).unwrap();
+        assert_eq!((dry.archived_updated, dry.total()), (1, 1));
+        assert!(!paths.archive_file().exists());
+        apply_merged(&paths, &remote, None, true).unwrap();
+        assert!(ArchiveStore::open(paths.archive_file())
+            .unwrap()
+            .is_archived("1"));
+        let again = apply_merged(&paths, &remote, None, true).unwrap();
+        assert_eq!(again.archived_updated, 0);
+        let local = collect_local(&paths, None).unwrap();
+        assert!(local.profiles["default"].archived["1"].archived);
+        let bad = document(&[("default", with_marks(&[("../x", archived(true, 1))]))]);
+        assert!(apply_merged(&paths, &bad, None, true).is_err());
+
+        // Deleting a profile deletes its marks too.
+        let gone = document(&[(
+            "default",
+            ProfileDoc {
+                removed_at: Some(99),
+                ..ProfileDoc::default()
+            },
+        )]);
+        apply_merged(&paths, &gone, None, true).unwrap();
+        assert!(!paths.archive_file().exists());
     }
 
     #[test]
