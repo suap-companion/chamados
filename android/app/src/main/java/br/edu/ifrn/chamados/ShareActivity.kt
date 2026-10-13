@@ -5,11 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 
 /** Recebe o que o Android entrega por "Compartilhar" e pergunta o que fazer com isso. */
 class ShareActivity : ComponentActivity() {
@@ -20,8 +16,7 @@ class ShareActivity : ComponentActivity() {
         enableEdgeToEdge()
         model.receive(intent)
         setContent {
-            val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
-            MaterialTheme(colorScheme = colors) {
+            ChamadosTheme {
                 Surface { ShareScreen(model) }
             }
         }
