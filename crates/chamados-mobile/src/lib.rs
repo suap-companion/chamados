@@ -7,6 +7,7 @@
 uniffi::setup_scaffolding!();
 
 mod sync;
+mod watching;
 
 use std::{
     path::{Path, PathBuf},

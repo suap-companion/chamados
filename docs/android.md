@@ -111,3 +111,13 @@ A fachada ganhou `assign`, `escalate`, `returnTicket`, `reclassify`, `addTags`/`
 - **Sincronização é manual** ("Sincronizar agora"); a periódica em segundo plano entra com o M6 (WorkManager).
 - **Testado**: no emulador, com um S3 falso em `localhost` (`adb reverse tcp:9000 tcp:9000`; o `network_security_config` libera HTTP para `localhost` só para isso, e a fachada só aceita http em loopback): pareamento por texto, credenciais, título do CLI na lista do app e título do app no CLI. **Não exercitado**: a leitura real do QR (o emulador não tem câmera utilizável; sem câmera o leitor mostra o aviso para colar o texto) e um bucket R2 de verdade.
 - **Dependências novas** (justificadas): `qrcode` (Rust, sem recursos de imagem) para desenhar o QR no terminal; `androidx.camera:*` 1.4.2 e `com.google.mlkit:barcode-scanning` 17.3.0 para ler o QR no app (o APK de depuração com as 3 ABIs passa de ~47 MB; o de release terá splits por ABI no M8).
+
+## Acompanhamento em segundo plano (M6)
+
+- **Fachada**: `Chamados.watchOnce(queue, todos, mensagens)` roda uma rodada do mesmo `watch` do CLI (`chamados-app::watching`) e devolve `WatchItem` (`new`, `status`, `left`, `message`) já com o título local. A primeira olhada de cada lista só registra o estado (`watch.json` do perfil). Só lê: nada é escrito no SUAP.
+- **App**: `WorkManager` periódico (`WatchWorker`, 15/30/60/120 min, só com rede) em Configurações > Acompanhamento, com a lista (Meus/Suporte), mensagens novas opcionais e "Verificar agora". Cada mudança vira uma notificação (acima de 5, um resumo). Na tela bloqueada o conteúdo do chamado não aparece (visibilidade privada).
+- **Sessão expirada**: um aviso "sessão expirada" (uma vez por expiração, rearmado quando a sessão volta); o login continua só pela WebView.
+- **Permissão**: `POST_NOTIFICATIONS` (Android 13+) é pedida ao ligar o acompanhamento; sem ela o acompanhamento roda mas não avisa.
+- **Limites**: sem push (exigiria servidor nosso), a latência é o intervalo; o mínimo do Android é 15 min e o Doze/economia de bateria podem atrasar; falhas de rede ou do SUAP são silenciosas e tentadas na próxima rodada.
+- **Testado no emulador**: baseline sem aviso; chamado criado pelo CLI gerou a notificação "Novo"; apagar o arquivo de sessão gerou o aviso de sessão expirada. **Não exercitado**: o agendamento periódico real (esperar o intervalo; só a verificação imediata foi usada), mudança de situação e mensagens novas no aparelho (cobertas pelos testes Rust).
+- **Dependência nova**: `androidx.work:work-runtime-ktx` 2.10.0 (agendamento que sobrevive a reinício e respeita o Doze; a alternativa com AlarmManager + serviço é mais frágil).
