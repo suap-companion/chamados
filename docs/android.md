@@ -78,3 +78,17 @@ Nada é enviado sem a revisão: o diálogo mostra a ação, o destino e os anexo
 Testar no emulador (sem outro app): `adb shell "am start -n br.edu.ifrn.chamados/.ShareActivity -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT 'texto'"`; para arquivos, indexe-os no MediaStore e passe `-d content://media/external/file/<id> --grant-read-uri-permission`.
 
 Limites desta versão: o destino de "Criar" usa o campus e o centro padrão do SUAP; o compartilhamento pendente não sobrevive se o app for encerrado durante o login.
+
+## Escrita no app (M4)
+
+No detalhe do chamado, a seção **Ações** mostra o que faz sentido para a situação dele (o SUAP ainda decide pelas permissões, e a recusa dele aparece na tela):
+
+- em andamento: Assumir, Iniciar atendimento, Comentar, Nota interna, Anexar arquivo, Resolver, Suspender, Cancelar chamado;
+- resolvido: Reabrir, Fechar e avaliar (nota 1 a 5 e comentário), Comentar, Nota interna, Anexar arquivo;
+- fechado ou cancelado: sem ações.
+
+Cada ação abre uma confirmação (com o texto, os anexos opcionais e, no cancelamento, o aviso de que não pode ser desfeito). Ao dar certo, o detalhe é atualizado; ao falhar, o motivo do SUAP aparece, passo a passo.
+
+**Novo chamado** (botão "Novo" na lista): número do serviço, interessado (vínculo; alguns serviços o exigem) e descrição, com até 3 anexos. Serviço e interessado ficam lembrados. O catálogo de serviços ainda não existe: é preciso saber o número.
+
+A fachada ganhou `assume`, `startService` e `closeTicket(id, nota, comentário)`, e o `interested` entrou na criação de chamado (`ShareJob`).

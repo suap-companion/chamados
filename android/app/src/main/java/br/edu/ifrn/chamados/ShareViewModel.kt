@@ -3,8 +3,6 @@ package br.edu.ifrn.chamados
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
-import android.provider.OpenableColumns
-import android.webkit.MimeTypeMap
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -21,12 +19,7 @@ import uniffi.chamados_mobile.RejectedFile
 import uniffi.chamados_mobile.ShareJob
 import uniffi.chamados_mobile.ShareKind
 import uniffi.chamados_mobile.ShareOutcome
-import uniffi.chamados_mobile.SharedFileInfo
 import uniffi.chamados_mobile.TicketSummary
-import uniffi.chamados_mobile.classifyShared
-
-/** Um arquivo recebido, já copiado para a pasta do app. */
-data class ReceivedFile(val name: String, val path: String, val size: Long)
 
 /** Em que passo da conversa "O que fazer com isto?" a pessoa está. */
 enum class SharePhase { Loading, NeedsLogin, Choosing, Sending, Finished }
@@ -64,7 +57,8 @@ class ShareViewModel(application: Application) : AndroidViewModel(application) {
     // O que a pessoa decide
     var choice by mutableStateOf<ShareChoice?>(null)
     var ticket by mutableStateOf("")
-    var serviceId by mutableStateOf("")
+    var serviceId by mutableStateOf(CoreAccess.serviceId(application))
+    var interested by mutableStateOf(CoreAccess.interested(application))
     var confirming by mutableStateOf(false)
 
     var tickets by mutableStateOf<List<TicketSummary>>(emptyList())
@@ -94,11 +88,9 @@ class ShareViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun classify() {
-        val info = files.map { SharedFileInfo(it.name, it.size.toULong()) }
-        val result = classifyShared(info, null)
-        val accepted = result.accepted.map { it.toInt() }.toSet()
-        rejected = result.rejected
-        files = files.filterIndexed { index, _ -> index in accepted }
+        val (accepted, refused) = FileCopy.classify(files)
+        rejected = refused
+        files = accepted
     }
 
     /** Sem sessão válida não há o que enviar: a pessoa entra no app e volta aqui. */
@@ -170,6 +162,7 @@ class ShareViewModel(application: Application) : AndroidViewModel(application) {
                     serviceId = serviceId.trim().toLongOrNull()?.toULong().takeIf { option == ShareChoice.Create },
                     campus = null,
                     center = null,
+                    interested = interested.trim().ifEmpty { null }.takeIf { option == ShareChoice.Create },
                     ticket = ticket.trim().takeIf { option.needsTicket },
                     text = text.trim().ifEmpty { null },
                     title = title,
@@ -213,24 +206,7 @@ class ShareViewModel(application: Application) : AndroidViewModel(application) {
         }
         folder.deleteRecursively()
         folder.mkdirs()
-        return uris.mapIndexedNotNull { index, uri -> copyOne(uri, index) }
-    }
-
-    /** Copia um `content://` para a pasta do app (o app de origem pode revogar o acesso depois). */
-    private fun copyOne(uri: Uri, index: Int): ReceivedFile? {
-        val resolver = getApplication<Application>().contentResolver
-        var name = uri.lastPathSegment?.substringAfterLast('/') ?: "arquivo-$index"
-        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst() && !cursor.isNull(0)) name = cursor.getString(0)
-        }
-        name = name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
-        if (!name.contains('.')) {
-            val extension = resolver.getType(uri)?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
-            if (extension != null) name = "$name.$extension"
-        }
-        val target = File(File(folder, index.toString()).apply { mkdirs() }, name)
-        val input = resolver.openInputStream(uri) ?: return null
-        input.use { source -> target.outputStream().use { source.copyTo(it) } }
-        return ReceivedFile(name, target.absolutePath, target.length())
+        val context = getApplication<Application>()
+        return uris.mapIndexedNotNull { index, uri -> FileCopy.copy(context, uri, folder, index) }
     }
 }

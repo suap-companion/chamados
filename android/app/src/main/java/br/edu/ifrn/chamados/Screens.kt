@@ -59,6 +59,7 @@ fun ChamadosApp(model: MainViewModel) {
         Screen.Tickets -> TicketsScreen(model)
         is Screen.Detail -> DetailScreen(model, screen.id)
         Screen.Settings -> SettingsScreen(model)
+        Screen.NewTicket -> NewTicketScreen(model)
     }
 }
 
@@ -137,6 +138,7 @@ fun TicketsScreen(model: MainViewModel) {
     Scaffold(
         topBar = {
             Bar("Chamados", actions = {
+                TextButton(onClick = model::openNewTicket) { Text("Novo") }
                 TextButton(onClick = model::refresh) { Text("Atualizar") }
                 TextButton(onClick = model::openSettings) { Text("Config.") }
             })
@@ -217,6 +219,7 @@ private fun Details(model: MainViewModel, view: TicketView) {
                 Text(field.value)
             }
         }
+        item { ActionsSection(model, view) }
         if (view.attachments.isNotEmpty()) {
             item { Text("Anexos", style = MaterialTheme.typography.titleMedium) }
             items(view.attachments) { attachment ->
