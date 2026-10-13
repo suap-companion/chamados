@@ -290,6 +290,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Executa uma ação de gestão (atribuir, escalar, reclassificar, tags, interessados). */
+    fun runManage(id: String, action: ManageAction, values: List<String>) {
+        viewModelScope.launch {
+            actionBusy = true
+            actionMessage = null
+            try {
+                val core = open()
+                fun at(index: Int): String? = values.getOrNull(index)?.trim()?.ifEmpty { null }
+                fun list(index: Int): List<String> =
+                    values.getOrNull(index).orEmpty().split(',', ';', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+                val result = when (action) {
+                    ManageAction.Assign -> "Atribuído a ${core.assign(id, at(0).orEmpty())}."
+                    ManageAction.Escalate -> {
+                        core.escalate(id, at(0).orEmpty(), at(1))
+                        "Escalado para o grupo acima."
+                    }
+                    ManageAction.Return -> {
+                        core.returnTicket(id, at(0).orEmpty(), at(1))
+                        "Devolvido ao grupo abaixo."
+                    }
+                    ManageAction.Reclassify -> {
+                        core.reclassify(id, at(0), at(1), at(2), at(3).orEmpty())
+                        "Chamado reclassificado."
+                    }
+                    ManageAction.AddTags -> "Tags adicionadas: ${core.addTags(id, list(0)).joinToString()}."
+                    ManageAction.RemoveTags -> "Tags removidas: ${core.removeTags(id, list(0)).joinToString()}."
+                    ManageAction.AddInterested -> "Incluídos: ${core.addInterested(id, list(0)).joinToString()}."
+                    ManageAction.RemoveInterested -> "Removidos: ${core.removeInterested(id, list(0)).joinToString()}."
+                }
+                actionIsError = false
+                actionMessage = result
+                reloadDetail(id)
+            } catch (error: Throwable) {
+                actionIsError = true
+                actionMessage = error.readable()
+            } finally {
+                actionBusy = false
+            }
+        }
+    }
+
     fun openNewTicket() {
         actionMessage = null
         clearPicked()
