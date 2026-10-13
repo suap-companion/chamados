@@ -92,3 +92,11 @@ Cada ação abre uma confirmação (com o texto, os anexos opcionais e, no cance
 **Novo chamado** (botão "Novo" na lista): número do serviço, interessado (vínculo; alguns serviços o exigem) e descrição, com até 3 anexos. Serviço e interessado ficam lembrados. O catálogo de serviços ainda não existe: é preciso saber o número.
 
 A fachada ganhou `assume`, `startService` e `closeTicket(id, nota, comentário)`, e o `interested` entrou na criação de chamado (`ShareJob`).
+
+## Gestão no app (M5)
+
+Abaixo das ações, a seção **Gestão** do detalhe oferece o que o CLI já fazia: **atribuir** a outro atendente do grupo, **escalar** e **devolver** (com nota interna e, se quiser, quem recebe), **reclassificar** (serviço, campus e/ou centro, com justificativa), **adicionar/remover tags** e **incluir/remover interessados**.
+
+Pessoas e tags são digitadas por nome ou matrícula (listas separadas por vírgula); o SUAP resolve o que bate. Se o texto for ambíguo ou não existir, o erro lista as opções disponíveis. Ao dar certo, o detalhe é atualizado e a mensagem diz quem foi atribuído, quais tags mudaram e quem entrou ou saiu.
+
+A fachada ganhou `assign`, `escalate`, `returnTicket`, `reclassify`, `addTags`/`removeTags` e `addInterested`/`removeInterested`. Fica para depois escolher atendentes e tags numa lista, em vez de digitar.

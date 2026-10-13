@@ -27,6 +27,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -34,11 +35,41 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import uniffi.chamados_mobile.TicketView
 
+/** Um campo de uma ação de gestão. */
+data class ManageField(val label: String, val required: Boolean, val lines: Int = 1)
+
+/** As ações de gestão do chamado: nome ou matrícula onde há pessoas, vírgulas onde há listas. */
+enum class ManageAction(val label: String, val fields: List<ManageField>) {
+    Assign("Atribuir a outro atendente", listOf(ManageField("Nome ou matrícula do atendente", true))),
+    Escalate(
+        "Escalar",
+        listOf(ManageField("Nota interna", true, 3), ManageField("Atribuir a (opcional)", false)),
+    ),
+    Return(
+        "Devolver",
+        listOf(ManageField("Nota interna", true, 3), ManageField("Atribuir a (opcional)", false)),
+    ),
+    Reclassify(
+        "Reclassificar",
+        listOf(
+            ManageField("Serviço (opcional)", false),
+            ManageField("Campus (opcional)", false),
+            ManageField("Centro (opcional)", false),
+            ManageField("Justificativa", true, 3),
+        ),
+    ),
+    AddTags("Adicionar tags", listOf(ManageField("Tags (separe por vírgula)", true))),
+    RemoveTags("Remover tags", listOf(ManageField("Tags (separe por vírgula)", true))),
+    AddInterested("Incluir interessados", listOf(ManageField("Matrículas ou nomes (separe por vírgula)", true))),
+    RemoveInterested("Remover interessados", listOf(ManageField("Matrículas ou nomes (separe por vírgula)", true))),
+}
+
 /** As ações do chamado, conforme a situação dele; cada uma pede confirmação antes de enviar. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ActionsSection(model: MainViewModel, view: TicketView) {
     var pending by remember(view.id) { mutableStateOf<DetailAction?>(null) }
+    var managing by remember(view.id) { mutableStateOf<ManageAction?>(null) }
     val actions = DetailAction.available(view.statuses)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Ações", style = MaterialTheme.typography.titleMedium)
@@ -56,7 +87,27 @@ fun ActionsSection(model: MainViewModel, view: TicketView) {
                 }
             }
         }
+        if (actions.isNotEmpty()) {
+            Text("Gestão", style = MaterialTheme.typography.titleMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ManageAction.entries.forEach { action ->
+                    OutlinedButton(onClick = { model.dismissAction(); managing = action }, enabled = !model.actionBusy) {
+                        Text(action.label)
+                    }
+                }
+            }
+        }
         if (model.actionBusy) CircularProgressIndicator()
+    }
+    managing?.let { action ->
+        ManageDialog(
+            action = action,
+            onDismiss = { managing = null },
+            onConfirm = { values ->
+                managing = null
+                model.runManage(view.id, action, values)
+            },
+        )
     }
     pending?.let { action ->
         ActionDialog(
@@ -129,6 +180,34 @@ private fun ActionDialog(
                 Text(if (cancelling) "Cancelar o chamado" else "Enviar")
             }
         },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Voltar") } },
+    )
+}
+
+@Composable
+private fun ManageDialog(action: ManageAction, onDismiss: () -> Unit, onConfirm: (List<String>) -> Unit) {
+    val values = remember { mutableStateListOf(*Array(action.fields.size) { "" }) }
+    val ready = action.fields.indices.all { !action.fields[it].required || values[it].isNotBlank() } &&
+        (action != ManageAction.Reclassify || values.take(3).any { it.isNotBlank() })
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(action.label) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                action.fields.forEachIndexed { index, field ->
+                    OutlinedTextField(
+                        value = values[index],
+                        onValueChange = { values[index] = it },
+                        label = { Text(field.label) },
+                        minLines = field.lines,
+                        singleLine = field.lines == 1,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (action == ManageAction.Reclassify) Text("Preencha ao menos um entre serviço, campus e centro.")
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(values.toList()) }, enabled = ready) { Text("Enviar") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Voltar") } },
     )
 }

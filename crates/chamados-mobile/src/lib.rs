@@ -16,7 +16,8 @@ use chamados_app::{
     share::SharedFile,
 };
 use chamados_core::{
-    parse_ticket_list, Attachment, SuapTicketSource, TicketFilter, TicketQueue, TicketSource,
+    parse_ticket_list, Attachment, Direction, Reclassification, SuapTicketSource, TicketFilter,
+    TicketQueue, TicketSource,
 };
 use suap_core::{AppPaths, SuapClient, SuapConfig};
 use url::Url;
@@ -443,6 +444,96 @@ impl Chamados {
         })
     }
 
+    /// Passa o chamado para outro atendente do mesmo grupo (nome ou matrícula); devolve quem recebeu.
+    pub async fn assign(&self, id: String, to: String) -> Result<String, ChamadosError> {
+        let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
+        source.assign_ticket(&id, &to).await.map_err(failed)
+    }
+
+    /// Escala o chamado para o grupo acima, com a nota interna (e, se quiser, quem o recebe).
+    pub async fn escalate(
+        &self,
+        id: String,
+        text: String,
+        to: Option<String>,
+    ) -> Result<(), ChamadosError> {
+        let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
+        let moved = source.move_ticket(&id, Direction::Escalate, &text, to.as_deref());
+        moved.await.map_err(failed)
+    }
+
+    /// Devolve o chamado ao grupo abaixo, com a nota interna (e, se quiser, quem o recebe).
+    pub async fn return_ticket(
+        &self,
+        id: String,
+        text: String,
+        to: Option<String>,
+    ) -> Result<(), ChamadosError> {
+        let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
+        let moved = source.move_ticket(&id, Direction::Return, &text, to.as_deref());
+        moved.await.map_err(failed)
+    }
+
+    /// Muda o serviço, o campus e/ou o centro do chamado (o que ficar vazio não muda), com a
+    /// justificativa.
+    pub async fn reclassify(
+        &self,
+        id: String,
+        service: Option<String>,
+        campus: Option<String>,
+        center: Option<String>,
+        text: String,
+    ) -> Result<(), ChamadosError> {
+        let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
+        let change = Reclassification {
+            service,
+            campus,
+            center,
+        };
+        let done = source.reclassify_ticket(&id, &change, &text);
+        done.await.map_err(failed)
+    }
+
+    /// Põe tags (pelo número ou nome) no chamado; devolve os nomes.
+    pub async fn add_tags(
+        &self,
+        id: String,
+        tags: Vec<String>,
+    ) -> Result<Vec<String>, ChamadosError> {
+        let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
+        source.add_tags(&id, &tags).await.map_err(failed)
+    }
+
+    /// Tira tags do chamado; devolve os nomes.
+    pub async fn remove_tags(
+        &self,
+        id: String,
+        tags: Vec<String>,
+    ) -> Result<Vec<String>, ChamadosError> {
+        let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
+        source.remove_tags(&id, &tags).await.map_err(failed)
+    }
+
+    /// Inclui outros interessados (por matrícula ou nome); devolve os nomes.
+    pub async fn add_interested(
+        &self,
+        id: String,
+        people: Vec<String>,
+    ) -> Result<Vec<String>, ChamadosError> {
+        let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
+        source.add_interested(&id, &people).await.map_err(failed)
+    }
+
+    /// Tira outros interessados do chamado; devolve os nomes.
+    pub async fn remove_interested(
+        &self,
+        id: String,
+        people: Vec<String>,
+    ) -> Result<Vec<String>, ChamadosError> {
+        let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
+        source.remove_interested(&id, &people).await.map_err(failed)
+    }
+
     /// Assume o chamado ("assumir").
     pub async fn assume(&self, id: String) -> Result<(), ChamadosError> {
         let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
@@ -767,6 +858,63 @@ mod tests {
                 .close_ticket("5".to_owned(), Some(9), None)
                 .await
                 .is_err());
+        }
+
+        #[tokio::test]
+        async fn the_management_actions_reach_suap_and_report_what_it_refuses() {
+            let server = MockServer::start().await;
+            let (_dir, chamados) = app(&server);
+            let id = || "5".to_owned();
+            let names = || vec!["Alguém".to_owned()];
+
+            // Without the forms, SUAP refuses each action and the reason comes back as an error.
+            assert!(chamados.assign(id(), "Ana".to_owned()).await.is_err());
+            assert!(chamados
+                .escalate(id(), "nota".to_owned(), None)
+                .await
+                .is_err());
+            assert!(chamados
+                .return_ticket(id(), "nota".to_owned(), None)
+                .await
+                .is_err());
+            let (service, text) = (Some("2".to_owned()), "porque sim".to_owned());
+            assert!(chamados
+                .reclassify(id(), service, None, None, text)
+                .await
+                .is_err());
+            assert!(chamados.add_tags(id(), names()).await.is_err());
+            assert!(chamados.remove_tags(id(), names()).await.is_err());
+            assert!(chamados.add_interested(id(), names()).await.is_err());
+            assert!(chamados.remove_interested(id(), names()).await.is_err());
+
+            // With the form, the attendant is found by name and the ticket is handed over.
+            let form = r#"<form action="/centralservicos/atribuir_chamado/5/" method="post">
+                <input type="hidden" name="csrfmiddlewaretoken" value="t">
+                <select name="atribuido_para"><option value="">---</option>
+                <option value="7">Ana Souza (111)</option><option value="8">Bruno Lima (222)</option></select></form>"#;
+            page(&server, "GET", "/centralservicos/atribuir_chamado/5/", form).await;
+            page(
+                &server,
+                "POST",
+                "/centralservicos/atribuir_chamado/5/",
+                "ok",
+            )
+            .await;
+            assert_eq!(
+                chamados.assign(id(), "bruno".to_owned()).await.unwrap(),
+                "Bruno Lima (222)"
+            );
+
+            // And a ticket goes up to the group above with an internal note.
+            let escalate = r#"<form action="/centralservicos/escalar_atendimento_chamado/5/" method="post">
+                <input type="hidden" name="csrfmiddlewaretoken" value="t"><textarea name="texto"></textarea></form>"#;
+            let path = "/centralservicos/escalar_atendimento_chamado/5/";
+            page(&server, "GET", path, escalate).await;
+            page(&server, "POST", path, "ok").await;
+            chamados
+                .escalate(id(), "Precisa do nível 2".to_owned(), None)
+                .await
+                .unwrap();
         }
     }
 }
