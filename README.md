@@ -169,6 +169,16 @@ chamados title 559298 --remove           # remove
 
 O título tem uma única linha, de até 120 caracteres. Fica em `titles.json` no diretório de dados (`titles-<perfil>.json` nos demais perfis), com a hora de cada alteração e as remoções registradas, para permitir sincronização futura. Esse arquivo é dado seu: se estiver corrompido, o comando informa o erro em vez de descartá-lo.
 
+### Arquivar chamados
+
+Chegam chamados que você não consegue encerrar no SUAP e que só atrapalham a caixa. Como o título, **arquivar é um controle só seu** (o SUAP não tem esse estado e nada é enviado a ele): fica em `archive.json` do perfil e é sincronizado de forma cifrada com o app.
+
+```bash
+chamados archive 559298 559300        # some das listas e do watch
+chamados list --arquivados            # só os arquivados (aceita os filtros e --titulo)
+chamados unarchive 559298             # volta às listas
+```
+
 ### Comentar e anotar um chamado
 
 ```bash

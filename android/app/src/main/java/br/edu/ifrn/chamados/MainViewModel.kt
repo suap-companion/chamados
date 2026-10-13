@@ -11,6 +11,7 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.chamados_mobile.ArchiveView
 import uniffi.chamados_mobile.Chamados
 import uniffi.chamados_mobile.ChamadosException
 import uniffi.chamados_mobile.ListQuery
@@ -113,9 +114,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var serviceId by mutableStateOf(CoreAccess.serviceId(application))
     var interested by mutableStateOf(CoreAccess.interested(application))
 
-    // Títulos locais (número do chamado → título)
+    // Títulos locais (número do chamado → título) e chamados arquivados (marca só nossa, sincronizada)
     var titles by mutableStateOf<Map<String, String>>(emptyMap())
         private set
+    var archived by mutableStateOf<Set<String>>(emptySet())
+        private set
+    var showArchived by mutableStateOf(false)
+        private set
+    private var listStale = false
 
     // Sincronização
     var syncState by mutableStateOf<SyncState?>(null)
@@ -169,6 +175,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadTitles() {
         viewModelScope.launch {
             runCatching { open().titles() }.onSuccess { found -> titles = found.associate { it.id to it.title } }
+            runCatching { open().archivedIds() }.onSuccess { found -> archived = found.toSet() }
+        }
+    }
+
+    /** Arquiva (ou desarquiva) o chamado: some das listas, sem mudar nada no SUAP. */
+    fun setArchived(id: String, value: Boolean) {
+        viewModelScope.launch {
+            try {
+                open().setArchived(id, value)
+                actionIsError = false
+                actionMessage = if (value) "Chamado arquivado." else "Chamado desarquivado."
+                listStale = true
+                loadTitles()
+            } catch (error: Throwable) {
+                actionIsError = true
+                actionMessage = error.readable()
+            }
         }
     }
 
@@ -189,7 +212,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun chooseQueue(next: Queue) {
         queue = next
-        if (next != Queue.SUPPORT) searchText = ""
+        if (next != Queue.SUPPORT && !showArchived) searchText = ""
+        refresh()
+    }
+
+    /** Alterna entre as listas de sempre e a dos arquivados (da fila escolhida). */
+    fun toggleArchivedView() {
+        showArchived = !showArchived
+        searchText = ""
         refresh()
     }
 
@@ -199,8 +229,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             listError = null
             try {
                 val text = searchText.trim().ifEmpty { null }
-                val query = ListQuery(text, emptyList(), false, null, null, null)
+                // Nos arquivados a busca é pelo título local, e todas as situações entram.
+                val query = if (showArchived) {
+                    ListQuery(title = text, archive = ArchiveView.ONLY, text = null, statuses = emptyList(), allStatuses = true, since = null, until = null, page = null)
+                } else {
+                    ListQuery(title = null, archive = ArchiveView.HIDE, text = text, statuses = emptyList(), allStatuses = false, since = null, until = null, page = null)
+                }
                 tickets = open().list(queue, query)
+                listStale = false
             } catch (error: Throwable) {
                 if (!stillLoggedIn()) screen = Screen.Login else listError = error.readable()
             } finally {
@@ -425,7 +461,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun back() {
         when (screen) {
-            is Screen.Detail -> screen = Screen.Tickets
+            is Screen.Detail -> {
+                screen = Screen.Tickets
+                if (listStale) refresh()
+            }
             Screen.NewTicket -> screen = Screen.Tickets
             Screen.Settings -> start()
             Screen.Sync -> screen = Screen.Settings
@@ -501,6 +540,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         listError = null
         tickets = emptyList()
         titles = emptyMap()
+        archived = emptySet()
         start()
     }
 }

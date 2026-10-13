@@ -11,7 +11,7 @@ use std::{
 };
 
 use chamados_app::{pairing::Pairing, syncing::sync_round};
-use chamados_core::TitleStore;
+use chamados_core::{ArchiveStore, TitleStore};
 use chamados_sync::{
     backend_from, key_exists, load_key, store_key, validate_settings, Key, KeySource,
     S3Credentials, SyncOptions, R2_BACKEND, S3_BACKEND,
@@ -146,6 +146,20 @@ impl Chamados {
         let had_title = store.remove(&id, unix_now()).map_err(failed)?;
         store.save().map_err(failed)?;
         Ok(had_title)
+    }
+
+    /// Os números dos chamados arquivados neste aparelho (e sincronizados com os outros).
+    pub fn archived_ids(&self) -> Result<Vec<String>, ChamadosError> {
+        let store = ArchiveStore::open(self.paths.archive_file()).map_err(failed)?;
+        Ok(store.archived_ids())
+    }
+
+    /// Arquiva (ou desarquiva) o chamado; diz se mudou algo. Nada é enviado ao SUAP.
+    pub fn set_archived(&self, id: String, archived: bool) -> Result<bool, ChamadosError> {
+        let mut store = ArchiveStore::open(self.paths.archive_file()).map_err(failed)?;
+        let changed = store.set(&id, archived, unix_now()).map_err(failed)?;
+        store.save().map_err(failed)?;
+        Ok(changed)
     }
 
     /// Como está a sincronização: o bucket, e se já há chave e credenciais.
@@ -306,6 +320,19 @@ mod tests {
         assert!(!chamados.remove_title("5".to_owned()).unwrap());
         assert!(chamados.remove_title("x".to_owned()).is_err());
         assert!(chamados.titles().unwrap().is_empty());
+
+        // Archiving is a private mark: it is kept, listed and undone without touching SUAP.
+        assert!(chamados.archived_ids().unwrap().is_empty());
+        assert!(chamados.set_archived("5".to_owned(), true).unwrap());
+        assert!(!chamados.set_archived("5".to_owned(), true).unwrap());
+        assert_eq!(chamados.archived_ids().unwrap(), ["5"]);
+        assert!(chamados.set_archived("x".to_owned(), true).is_err());
+        assert!(chamados.set_archived("5".to_owned(), false).unwrap());
+        assert!(chamados.archived_ids().unwrap().is_empty());
+        std::fs::write(chamados.paths.archive_file(), "{").unwrap();
+        assert!(chamados.archived_ids().is_err());
+        assert!(chamados.set_archived("5".to_owned(), true).is_err());
+        std::fs::remove_file(chamados.paths.archive_file()).unwrap();
 
         // A damaged file is an error, never an empty list that would hide the user's titles.
         std::fs::write(chamados.paths.titles_file(), "{").unwrap();

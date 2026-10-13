@@ -8,11 +8,13 @@ use suap_core::{FormFile, SuapClient, SuapError};
 use thiserror::Error;
 use url::Url;
 
+pub mod archive;
 pub mod filter;
 pub mod manage;
 pub mod titles;
 pub mod watch;
 
+pub use archive::{ArchiveEntry, ArchiveStore};
 pub use filter::{suap_date, TicketFilter, ASSIGNMENTS, MAX_PAGES, ORDERS, RELATIONS, STATUSES};
 pub use manage::{pick_choice, Choice, Direction, Reclassification};
 pub use titles::{validate_title, TitleEntry, TitleStore, MAX_TITLE_CHARS};

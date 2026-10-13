@@ -152,12 +152,13 @@ fun TicketsScreen(model: MainViewModel) {
                 labels.forEach { (queue, label) ->
                     FilterChip(selected = model.queue == queue, onClick = { model.chooseQueue(queue) }, label = { Text(label) })
                 }
+                FilterChip(selected = model.showArchived, onClick = model::toggleArchivedView, label = { Text("Arquivados") })
             }
-            if (model.queue == Queue.SUPPORT) {
+            if (model.queue == Queue.SUPPORT || model.showArchived) {
                 OutlinedTextField(
                     value = model.searchText,
                     onValueChange = { model.searchText = it },
-                    label = { Text("Buscar no texto (Enter)") },
+                    label = { Text(if (model.showArchived) "Buscar no título local (Enter)" else "Buscar no texto (Enter)") },
                     singleLine = true,
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { model.refresh() }),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
@@ -167,7 +168,7 @@ fun TicketsScreen(model: MainViewModel) {
             when {
                 model.listLoading -> Centered { CircularProgressIndicator() }
                 model.listError != null -> Message(model.listError!!)
-                model.tickets.isEmpty() -> Message("Nenhum chamado nesta lista.")
+                model.tickets.isEmpty() -> Message(if (model.showArchived) "Nenhum chamado arquivado nesta lista." else "Nenhum chamado nesta lista.")
                 else -> LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(model.tickets, key = { it.id }) { ticket ->
                         Card(Modifier.fillMaxWidth().clickable { model.openDetail(ticket.id) }) {
@@ -262,6 +263,10 @@ private fun TitleSection(model: MainViewModel, id: String) {
         )
         Button(onClick = { model.saveTitle(id, text) }, enabled = text.trim() != model.titles[id].orEmpty()) {
             Text(if (text.isBlank() && model.titles[id] != null) "Remover título" else "Salvar título")
+        }
+        val isArchived = id in model.archived
+        OutlinedButton(onClick = { model.setArchived(id, !isArchived) }) {
+            Text(if (isArchived) "Desarquivar" else "Arquivar (só no app e na sincronização)")
         }
     }
 }

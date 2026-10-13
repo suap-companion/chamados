@@ -18,7 +18,7 @@ use std::{
 use chamados_app::{
     batch::send_messages,
     download::download_attachments,
-    listing::narrow,
+    listing::{narrow, without_archived, ArchiveView},
     pairing::{qr_text, Pairing},
     pdf::text_to_pdf,
     syncing::sync_round,
@@ -27,9 +27,9 @@ use chamados_app::{
 use chamados_core::{
     validate_title,
     watch::{poll, Snapshot},
-    Attachment, Direction, Message, NewTicket, Reclassification, Resolution, SuapTicketSource,
-    TicketDetails, TicketError, TicketFilter, TicketQueue, TicketSource, TitleStore, ASSIGNMENTS,
-    ORDERS, RELATIONS, STATUSES,
+    ArchiveStore, Attachment, Direction, Message, NewTicket, Reclassification, Resolution,
+    SuapTicketSource, TicketDetails, TicketError, TicketFilter, TicketQueue, TicketSource,
+    TitleStore, ASSIGNMENTS, ORDERS, RELATIONS, STATUSES,
 };
 use chamados_sync::{
     backend_from, key_exists, key_source_from, load_key, record_removal, store_key,
@@ -206,6 +206,19 @@ enum Command {
         /// Remove o título local.
         #[arg(long)]
         remove: bool,
+    },
+    /// Arquiva chamados: some das listas e do `watch` (o SUAP não tem esta situação; é um controle só seu,
+    /// guardado nesta máquina e sincronizado cifrado). Veja os arquivados com `list --arquivados`.
+    Archive {
+        /// Números dos chamados.
+        #[arg(required = true)]
+        ids: Vec<u64>,
+    },
+    /// Desarquiva chamados: voltam às listas e ao `watch`.
+    Unarchive {
+        /// Números dos chamados.
+        #[arg(required = true)]
+        ids: Vec<u64>,
     },
     /// Exibe uma mensagem sobre o estado inicial do projeto.
     Status,
@@ -476,6 +489,9 @@ struct ListArgs {
     /// Só os chamados cujo título local contém este texto (sem diferenciar maiúsculas).
     #[arg(long)]
     titulo: Option<String>,
+    /// Mostra só os chamados arquivados (sem isto, os arquivados não aparecem).
+    #[arg(long)]
+    arquivados: bool,
     /// Mostra no máximo este número de chamados.
     #[arg(long)]
     limite: Option<usize>,
@@ -691,6 +707,7 @@ where
 fn changes_synced_data(command: &Option<Command>) -> bool {
     match command {
         Some(Command::Title { text, remove, .. }) => text.is_some() || *remove,
+        Some(Command::Archive { .. } | Command::Unarchive { .. }) => true,
         Some(Command::Profile { command }) => matches!(
             command,
             ProfileCommand::Init(_) | ProfileCommand::Update(_) | ProfileCommand::Remove { .. }
@@ -813,6 +830,8 @@ fn dispatch(
         Some(Command::Start { id, assume }) => start(paths, id, assume, out),
         Some(Command::Cancel { message, yes }) => cancel(paths, message, yes, input, out),
         Some(Command::Title { id, text, remove }) => title(paths, id, text, remove, out),
+        Some(Command::Archive { ids }) => archive(paths, &ids, true, out),
+        Some(Command::Unarchive { ids }) => archive(paths, &ids, false, out),
         Some(Command::Status) => {
             writeln!(
                 out,
@@ -1147,8 +1166,17 @@ fn list(
         .block_on(source.list_filtered(&filter))
         .map_err(explain)?;
     let titles = TitleStore::open(paths.titles_file())?;
-    // The local titles never leave this machine, so this filter is applied here.
-    let tickets = narrow(tickets, &titles, args.titulo.as_deref(), args.limite);
+    let archive = ArchiveStore::open(paths.archive_file())?;
+    let view = [ArchiveView::Hide, ArchiveView::Only][usize::from(args.arquivados)];
+    // The local titles and the archive never leave this machine, so these filters are applied here.
+    let tickets = narrow(
+        tickets,
+        &titles,
+        &archive,
+        view,
+        args.titulo.as_deref(),
+        args.limite,
+    );
     if args.json {
         let local_title = |id: &str| titles.get(id).map(str::to_owned);
         let json = render::tickets_json(&tickets, &local_title);
@@ -1204,6 +1232,9 @@ fn show(paths: &AppPaths, id: u64, json: bool, out: &mut dyn Write) -> Result<()
         return Ok(());
     }
     print_details(&details, local_title, out)?;
+    if ArchiveStore::open(paths.archive_file())?.is_archived(&id.to_string()) {
+        writeln!(out, "Arquivado: sim (chamados unarchive {id})")?;
+    }
     Ok(())
 }
 
@@ -1924,6 +1955,9 @@ fn watch(paths: &AppPaths, args: &WatchArgs, out: &mut dyn Write) -> Result<(), 
         match polled {
             Ok((snapshot, events)) => {
                 let now = unix_now() / 1_000;
+                // Read at each round: archiving while the watch runs takes effect on the next one.
+                let archive = ArchiveStore::open(paths.archive_file())?;
+                let events = without_archived(events, &archive);
                 for event in &events {
                     let title = titles.get(event.id());
                     let line = match args.json {
@@ -1965,6 +1999,29 @@ fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_millis() as u64)
+}
+
+fn archive(
+    paths: &AppPaths,
+    ids: &[u64],
+    archived: bool,
+    out: &mut dyn Write,
+) -> Result<(), Box<dyn Error>> {
+    let mut store = ArchiveStore::open(paths.archive_file())?;
+    let now = unix_now();
+    let (done, already) = match archived {
+        true => ("arquivado", "já estava arquivado"),
+        false => ("desarquivado", "não estava arquivado"),
+    };
+    for id in ids {
+        let text = match store.set(&id.to_string(), archived, now)? {
+            true => done,
+            false => already,
+        };
+        writeln!(out, "Chamado #{id} {text}.")?;
+    }
+    store.save()?;
+    Ok(())
 }
 
 fn title(
@@ -2852,6 +2909,119 @@ mod tests {
     }
 
     #[test]
+    fn archived_tickets_leave_the_lists_until_they_are_unarchived() {
+        let (_dir, paths) = paths();
+        let (runtime, server) = mock_server(true);
+        run_args(&["profile", "init", "--base-url", &server.uri()], &paths);
+        let listing = r#"<div class="general-box"><span class="status">Em atendimento</span>
+            <h4><a href="/centralservicos/chamado/7/">REQ #7 <strong>Assunto</strong></a></h4></div>
+            <div class="general-box"><h4><a href="/centralservicos/chamado/8/">REQ #8</a></h4></div>"#;
+        mount_listing(
+            &runtime,
+            &server,
+            "/centralservicos/listar_chamados_suporte/",
+            ResponseTemplate::new(200).set_body_string(listing),
+        );
+        let page = r#"<main id="content"><div class="title-container"><h2>Chamado Interno 7</h2></div></main>"#;
+        mount_listing(
+            &runtime,
+            &server,
+            "/centralservicos/chamado/7/",
+            ResponseTemplate::new(200).set_body_string(page),
+        );
+
+        let (code, out, _) = run_args(&["archive", "7", "9"], &paths);
+        assert_eq!(
+            (code, out.as_str()),
+            (
+                0,
+                "Chamado #7 arquivado.
+Chamado #9 arquivado.
+"
+            )
+        );
+        let (_, out, _) = run_args(&["archive", "7"], &paths);
+        assert_eq!(
+            out,
+            "Chamado #7 já estava arquivado.
+"
+        );
+        let (_, out, _) = run_args(&["list"], &paths);
+        assert_eq!(
+            out,
+            "#8	-	-	-
+"
+        );
+        let (_, out, _) = run_args(&["list", "--arquivados"], &paths);
+        assert_eq!(
+            out,
+            "#7	Em atendimento	-	Assunto
+"
+        );
+        let (_, out, _) = run_args(&["show", "7"], &paths);
+        assert!(out.contains("Arquivado: sim"), "{out}");
+
+        let (_, out, _) = run_args(&["unarchive", "7", "8"], &paths);
+        assert_eq!(
+            out,
+            "Chamado #7 desarquivado.
+Chamado #8 não estava arquivado.
+"
+        );
+        let (_, out, _) = run_args(&["list"], &paths);
+        assert!(out.contains("#7") && out.contains("#8"));
+        let (_, out, _) = run_args(&["show", "7"], &paths);
+        assert!(!out.contains("Arquivado"));
+        let (code, _, err) = run_args(&["archive", "abc"], &paths);
+        assert_ne!(code, 0);
+        assert!(err.contains("invalid value"), "{err}");
+
+        std::fs::write(paths.archive_file(), "quebrado").unwrap();
+        let (code, _, err) = run_args(&["list"], &paths);
+        assert_eq!(code, 1);
+        assert!(err.contains("archive file"), "{err}");
+    }
+
+    #[test]
+    fn archive_marks_travel_through_the_encrypted_sync() {
+        let root = tempdir().unwrap();
+        let cloud = root.path().join("nuvem");
+        let (_dir_a, a) = paths();
+        let (_dir_b, b) = paths();
+        setup_sync(&a, &cloud, &root.path().join("a.key"));
+        setup_sync(&b, &cloud, &root.path().join("b.key"));
+        run_args(&["sync", "key", "generate"], &a);
+        run_args(
+            &["profile", "init", "--username", "ana", "--sync", "true"],
+            &a,
+        );
+        let (_, key, _) = run_args(&["sync", "key", "export"], &a);
+        run_with_input(&["sync", "key", "import"], &b, &key);
+
+        run_args(&["archive", "5"], &a);
+        assert_eq!(run_args(&["sync"], &a).0, 0);
+        assert_eq!(run_args(&["sync"], &b).0, 0);
+        let (_, out, _) = run_args(&["archive", "5"], &b);
+        assert_eq!(
+            out,
+            "Chamado #5 já estava arquivado.
+"
+        );
+
+        // Unarchiving on B (later) reaches A, and A's old mark does not come back.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        run_args(&["unarchive", "5"], &b);
+        assert_eq!(run_args(&["sync"], &b).0, 0);
+        assert_eq!(run_args(&["sync"], &a).0, 0);
+        let (_, out, _) = run_args(&["unarchive", "5"], &a);
+        assert_eq!(
+            out,
+            "Chamado #5 não estava arquivado.
+"
+        );
+    }
+
+    #[test]
     fn titles_are_kept_per_profile() {
         let (_dir, paths) = paths();
         run_args(&["title", "7", "No default"], &paths);
@@ -3421,8 +3591,10 @@ mod tests {
 
     /// Commands without free text. A new command must be added to one of the two lists, which forces
     /// a decision about RS-02 (and a test for it) whenever a command is created.
-    const NON_TEXT_COMMANDS: [&str; 17] = [
+    const NON_TEXT_COMMANDS: [&str; 19] = [
         "sync",
+        "archive",
+        "unarchive",
         "attach",
         "watch",
         "assign",

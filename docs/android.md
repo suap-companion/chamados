@@ -121,3 +121,10 @@ A fachada ganhou `assign`, `escalate`, `returnTicket`, `reclassify`, `addTags`/`
 - **Limites**: sem push (exigiria servidor nosso), a latência é o intervalo; o mínimo do Android é 15 min e o Doze/economia de bateria podem atrasar; falhas de rede ou do SUAP são silenciosas e tentadas na próxima rodada.
 - **Testado no emulador**: baseline sem aviso; chamado criado pelo CLI gerou a notificação "Novo"; apagar o arquivo de sessão gerou o aviso de sessão expirada. **Não exercitado**: o agendamento periódico real (esperar o intervalo; só a verificação imediata foi usada), mudança de situação e mensagens novas no aparelho (cobertas pelos testes Rust).
 - **Dependência nova**: `androidx.work:work-runtime-ktx` 2.10.0 (agendamento que sobrevive a reinício e respeita o Doze; a alternativa com AlarmManager + serviço é mais frágil).
+
+## Arquivar chamados (#102)
+
+- **O que é**: uma marca só nossa, como o título local. O SUAP não tem esse estado e **nada é enviado a ele**. Fica em `archive.json` do perfil e viaja pela sincronização cifrada (campo `archived` do documento, mesma regra de mescla dos títulos: vale a mudança mais recente; desarquivar deixa uma marca "desarquivado").
+- **CLI**: `chamados archive <id>...` e `chamados unarchive <id>...`; `list` esconde os arquivados e `list --arquivados` mostra só eles (com os mesmos filtros e `--titulo`); `show` avisa "Arquivado: sim"; `watch` não avisa dos arquivados (o estado deles continua sendo registrado, então desarquivar não gera enxurrada).
+- **App**: botão Arquivar/Desarquivar no detalhe; chip "Arquivados" na lista (da fila escolhida, com todas as situações) e busca pelo título local; o acompanhamento em segundo plano ignora os arquivados.
+- **Limite**: a lista de arquivados é a da fila escolhida filtrada pela marca, então um arquivado que já saiu dessa lista do SUAP não aparece (continua marcado). Clientes anteriores à 0.35 ignoram o campo `archived` e o perdem se enviarem o próprio documento: atualize CLI e app juntos.
