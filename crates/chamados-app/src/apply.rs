@@ -16,6 +16,8 @@ pub enum ShareAction {
         service_id: u64,
         campus: Option<String>,
         center: Option<String>,
+        /// Interessado (id de vínculo do SUAP); alguns serviços o exigem.
+        interested: Option<String>,
     },
     /// Anexa ao chamado os arquivos e, se houver texto, o texto como PDF.
     Attach,
@@ -115,6 +117,7 @@ fn plan(request: &ShareRequest) -> Result<Vec<Step>, AppError> {
         service_id,
         campus,
         center,
+        interested,
     } = &request.action
     {
         let description = text.ok_or_else(|| refuse("falta a descrição do chamado"))?;
@@ -129,6 +132,7 @@ fn plan(request: &ShareRequest) -> Result<Vec<Step>, AppError> {
             description: description.to_owned(),
             campus: campus.clone(),
             center: center.clone(),
+            interested: interested.clone(),
             attachments: files,
             ..NewTicket::default()
         };

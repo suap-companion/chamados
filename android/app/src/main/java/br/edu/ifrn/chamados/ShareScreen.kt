@@ -116,6 +116,13 @@ private fun Choosing(model: ShareViewModel) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    value = model.interested,
+                    onValueChange = { model.interested = it },
+                    label = { Text("Interessado (vínculo; opcional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
         if (option != null && option.needsTicket) {

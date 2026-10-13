@@ -190,6 +190,8 @@ pub struct ShareJob {
     pub service_id: Option<u64>,
     pub campus: Option<String>,
     pub center: Option<String>,
+    /// Interessado (id de vínculo do SUAP), ao abrir um chamado; alguns serviços o exigem.
+    pub interested: Option<String>,
     /// O chamado de destino (todas as ações, menos abrir).
     pub ticket: Option<String>,
     /// Descrição, comentário, nota, motivo ou o conteúdo do PDF.
@@ -405,6 +407,7 @@ impl Chamados {
                     .ok_or_else(|| failed("falta o serviço do novo chamado"))?,
                 campus: job.campus,
                 center: job.center,
+                interested: job.interested,
             },
             ShareKind::Attach => ShareAction::Attach,
             ShareKind::Comment => ShareAction::Comment,
@@ -438,6 +441,30 @@ impl Chamados {
                 })
                 .collect(),
         })
+    }
+
+    /// Assume o chamado ("assumir").
+    pub async fn assume(&self, id: String) -> Result<(), ChamadosError> {
+        let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
+        source.assume_ticket(&id).await.map_err(failed)
+    }
+
+    /// Coloca o chamado em atendimento (antes é preciso tê-lo assumido).
+    pub async fn start_service(&self, id: String) -> Result<(), ChamadosError> {
+        let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
+        source.start_service(&id).await.map_err(failed)
+    }
+
+    /// Fecha um chamado resolvido, com a avaliação (nota de 1 a 5) e o comentário de quem o abriu.
+    pub async fn close_ticket(
+        &self,
+        id: String,
+        rating: Option<u8>,
+        comment: Option<String>,
+    ) -> Result<(), ChamadosError> {
+        let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
+        let result = source.close_ticket(&id, rating, comment.as_deref()).await;
+        result.map_err(failed)
     }
 }
 
@@ -532,6 +559,7 @@ mod tests {
                 service_id: None,
                 campus: None,
                 center: None,
+                interested: None,
                 ticket: Some("5".to_owned()),
                 text: Some("texto".to_owned()),
                 title: None,
@@ -689,6 +717,7 @@ mod tests {
             create.service_id = Some(3);
             create.campus = Some("1".to_owned());
             create.center = Some("2".to_owned());
+            create.interested = Some("1".to_owned());
             let refused = chamados.apply_share(create).await.unwrap();
             assert!(!refused.done);
             assert!(refused.steps[0].error.is_some());
@@ -700,6 +729,44 @@ mod tests {
             let mut empty = job(ShareKind::Comment);
             empty.text = None;
             assert!(chamados.apply_share(empty).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn a_ticket_is_assumed_started_and_closed_with_a_rating() {
+            let server = MockServer::start().await;
+            let (_dir, chamados) = app(&server);
+            assert!(chamados.assume("5".to_owned()).await.is_err());
+            assert!(chamados.start_service("5".to_owned()).await.is_err());
+
+            page(
+                &server,
+                "GET",
+                "/centralservicos/auto_atribuir_chamado/5/",
+                "",
+            )
+            .await;
+            page(
+                &server,
+                "GET",
+                "/centralservicos/colocar_em_atendimento/5/",
+                "",
+            )
+            .await;
+            chamados.assume("5".to_owned()).await.unwrap();
+            chamados.start_service("5".to_owned()).await.unwrap();
+
+            let form = r#"<form action="/centralservicos/fechar_chamado/5/" method="post">
+                <input type="hidden" name="csrfmiddlewaretoken" value="t"><input name="nota_avaliacao">
+                <textarea name="comentario"></textarea></form>"#;
+            page(&server, "GET", "/centralservicos/fechar_chamado/5/", form).await;
+            page(&server, "POST", "/centralservicos/fechar_chamado/5/", "ok").await;
+            let comment = Some("Atendimento ótimo".to_owned());
+            let closing = chamados.close_ticket("5".to_owned(), Some(5), comment);
+            closing.await.unwrap();
+            assert!(chamados
+                .close_ticket("5".to_owned(), Some(9), None)
+                .await
+                .is_err());
         }
     }
 }

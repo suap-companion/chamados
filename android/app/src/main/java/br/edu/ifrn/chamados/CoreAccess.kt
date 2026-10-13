@@ -18,6 +18,22 @@ object CoreAccess {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(BASE_URL, url).apply()
     }
 
+    /** O número do serviço usado da última vez ao abrir um chamado. */
+    fun serviceId(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("service_id", "") ?: ""
+
+    fun saveServiceId(context: Context, id: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("service_id", id).apply()
+    }
+
+    /** O interessado (vínculo) usado da última vez ao abrir um chamado. */
+    fun interested(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("interested", "") ?: ""
+
+    fun saveInterested(context: Context, id: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("interested", id).apply()
+    }
+
     /** Cada endereço do SUAP tem a sua pasta, para as sessões não se misturarem. */
     fun dataDir(context: Context, url: String): File {
         val host = runCatching { URI(url).authority }.getOrNull() ?: "suap"

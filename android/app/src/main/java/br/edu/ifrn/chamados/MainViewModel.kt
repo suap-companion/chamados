@@ -1,17 +1,22 @@
 package br.edu.ifrn.chamados
 
 import android.app.Application
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.chamados_mobile.Chamados
 import uniffi.chamados_mobile.ChamadosException
 import uniffi.chamados_mobile.ListQuery
 import uniffi.chamados_mobile.Queue
+import uniffi.chamados_mobile.ShareJob
+import uniffi.chamados_mobile.ShareKind
 import uniffi.chamados_mobile.TicketSummary
 import uniffi.chamados_mobile.TicketView
 
@@ -25,6 +30,34 @@ sealed interface Screen {
     data object Tickets : Screen
     data class Detail(val id: String) : Screen
     data object Settings : Screen
+    data object NewTicket : Screen
+}
+
+/** O que se pode fazer num chamado, na tela de detalhe. */
+enum class DetailAction(val label: String, val needsText: Boolean, val kind: ShareKind?, val takesFiles: Boolean) {
+    Assume("Assumir", false, null, false),
+    Start("Iniciar atendimento", false, null, false),
+    Comment("Comentar", true, ShareKind.COMMENT, true),
+    Note("Nota interna", true, ShareKind.INTERNAL_NOTE, true),
+    Attach("Anexar arquivo", false, ShareKind.ATTACH, true),
+    Resolve("Resolver", true, ShareKind.RESOLVE, true),
+    Suspend("Suspender", true, ShareKind.SUSPEND, true),
+    Cancel("Cancelar chamado", true, ShareKind.CANCEL, true),
+    Reopen("Reabrir", true, ShareKind.REOPEN, true),
+    Close("Fechar e avaliar", false, null, false),
+    ;
+
+    companion object {
+        /** As ações que fazem sentido para a situação do chamado (o SUAP ainda decide pelas permissões). */
+        fun available(statuses: List<String>): List<DetailAction> {
+            val text = statuses.joinToString(" ").lowercase()
+            return when {
+                "fechado" in text || "cancelado" in text -> emptyList()
+                "resolvido" in text -> listOf(Reopen, Close, Comment, Note, Attach)
+                else -> listOf(Assume, Start, Comment, Note, Attach, Resolve, Suspend, Cancel)
+            }
+        }
+    }
 }
 
 /** Um anexo baixado, pronto para abrir. */
@@ -63,6 +96,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var downloading by mutableStateOf<UInt?>(null)
         private set
     var downloaded by mutableStateOf<DownloadedFile?>(null)
+
+    // Ações e novo chamado
+    var actionBusy by mutableStateOf(false)
+        private set
+    var actionMessage by mutableStateOf<String?>(null)
+    var actionIsError by mutableStateOf(false)
+        private set
+    var picked by mutableStateOf<List<ReceivedFile>>(emptyList())
+        private set
+    var pickNote by mutableStateOf<String?>(null)
+        private set
+    var serviceId by mutableStateOf(CoreAccess.serviceId(application))
+    var interested by mutableStateOf(CoreAccess.interested(application))
 
     init {
         start()
@@ -126,6 +172,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openDetail(id: String) {
         screen = Screen.Detail(id)
         detail = null
+        actionMessage = null
         downloaded = null
         viewModelScope.launch {
             detailLoading = true
@@ -166,6 +213,127 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             true
         }
 
+    /** Atualiza o detalhe depois de uma ação, sem sair da tela. */
+    private suspend fun reloadDetail(id: String) {
+        runCatching { open().show(id) }.onSuccess { detail = it }
+    }
+
+    private val pickFolder get() = File(getApplication<Application>().cacheDir, "envio")
+
+    /** Copia o que a pessoa escolheu no seletor de arquivos e separa o que o SUAP aceita. */
+    fun onPicked(uris: List<Uri>, limit: UInt?) {
+        viewModelScope.launch {
+            val (accepted, refused) = withContext(Dispatchers.IO) {
+                pickFolder.deleteRecursively()
+                pickFolder.mkdirs()
+                val context = getApplication<Application>()
+                val copied = uris.mapIndexedNotNull { index, uri -> FileCopy.copy(context, uri, pickFolder, index) }
+                FileCopy.classify(copied, limit)
+            }
+            picked = accepted
+            pickNote = refused.takeIf { it.isNotEmpty() }
+                ?.joinToString("\n") { "${it.name}: ${it.reason}" }
+        }
+    }
+
+    fun clearPicked() {
+        picked = emptyList()
+        pickNote = null
+        pickFolder.deleteRecursively()
+    }
+
+    fun dismissAction() {
+        actionMessage = null
+        clearPicked()
+    }
+
+    private fun describe(steps: List<uniffi.chamados_mobile.ShareStepResult>): String =
+        steps.joinToString("\n") { step ->
+            val mark = if (step.error == null) "✓" else "✗"
+            val reason = step.error?.let { ": $it" } ?: ""
+            "$mark ${step.label}$reason"
+        }
+
+    /** Executa uma ação do detalhe e mostra o resultado; só atualiza o chamado se deu certo. */
+    fun runAction(id: String, action: DetailAction, text: String?, rating: Int?) {
+        viewModelScope.launch {
+            actionBusy = true
+            actionMessage = null
+            try {
+                val core = open()
+                val clean = text?.trim()?.ifEmpty { null }
+                var failure: String? = null
+                when (action) {
+                    DetailAction.Assume -> core.assume(id)
+                    DetailAction.Start -> core.startService(id)
+                    DetailAction.Close -> core.closeTicket(id, rating?.toUByte(), clean)
+                    else -> {
+                        val job = ShareJob(
+                            kind = action.kind!!, serviceId = null, campus = null, center = null, interested = null,
+                            ticket = id, text = clean, title = null,
+                            filePaths = picked.map { it.path }, resumeFrom = 0u,
+                        )
+                        val outcome = core.applyShare(job)
+                        if (!outcome.done) failure = describe(outcome.steps)
+                    }
+                }
+                actionIsError = failure != null
+                actionMessage = failure ?: "${action.label}: feito."
+                if (failure == null) reloadDetail(id)
+            } catch (error: Throwable) {
+                actionIsError = true
+                actionMessage = error.readable()
+            } finally {
+                clearPicked()
+                actionBusy = false
+            }
+        }
+    }
+
+    fun openNewTicket() {
+        actionMessage = null
+        clearPicked()
+        screen = Screen.NewTicket
+    }
+
+    /** Abre um chamado novo (o serviço é o número dele no SUAP) e vai para o detalhe. */
+    fun createTicket(text: String) {
+        val service = serviceId.trim().toLongOrNull()
+        if (service == null || text.isBlank()) {
+            actionIsError = true
+            actionMessage = "Informe o número do serviço e a descrição."
+            return
+        }
+        viewModelScope.launch {
+            actionBusy = true
+            actionMessage = null
+            try {
+                val job = ShareJob(
+                    kind = ShareKind.CREATE, serviceId = service.toULong(), campus = null, center = null,
+                    interested = interested.trim().ifEmpty { null },
+                    ticket = null, text = text.trim(), title = null,
+                    filePaths = picked.map { it.path }, resumeFrom = 0u,
+                )
+                val outcome = open().applyShare(job)
+                val created = outcome.ticket
+                if (outcome.done && created != null) {
+                    CoreAccess.saveServiceId(getApplication(), service.toString())
+                    CoreAccess.saveInterested(getApplication(), interested.trim())
+                    clearPicked()
+                    openDetail(created)
+                } else {
+                    actionIsError = true
+                    actionMessage = describe(outcome.steps)
+                }
+            } catch (error: Throwable) {
+                actionIsError = true
+                actionMessage = error.readable()
+            } finally {
+                actionBusy = false
+            }
+        }
+    }
+
     fun logout() {
         viewModelScope.launch {
             runCatching { open().logout() }
@@ -177,6 +345,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun back() {
         when (screen) {
             is Screen.Detail -> screen = Screen.Tickets
+            Screen.NewTicket -> screen = Screen.Tickets
             Screen.Settings -> start()
             else -> Unit
         }
