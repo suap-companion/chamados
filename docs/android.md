@@ -66,3 +66,15 @@ O app em `android/` (Jetpack Compose, Material 3) abre no login e depois na list
 No emulador, se o teclado virtual não aparecer (o emulador usa o teclado do PC), ligue "Usar teclado na tela" em Configurações → Sistema → Teclado → Teclado físico.
 
 Compilar e instalar: `sh scripts/build-android.sh`, depois `cd android && ./gradlew assembleDebug` e `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
+
+## Receber compartilhamentos (M4b)
+
+O app aparece em **Compartilhar → Chamados** para texto e para os tipos que o SUAP aceita (pdf, jpg, png, doc/docx, xls/xlsx, csv), com um ou vários arquivos.
+
+A `ShareActivity` copia os arquivos do `content://` para a pasta do app, classifica com `classifyShared` (os recusados aparecem riscados, com o motivo) e **sempre pergunta**: criar chamado, anexar, comentar, nota interna, resolver, cancelar, reabrir ou suspender. Ações que não cabem no que chegou ficam desabilitadas com a razão. O destino é escolhido numa lista (busca pelo número) ou digitando o número; para criar, informa-se o número do serviço.
+
+Nada é enviado sem a revisão: o diálogo mostra a ação, o destino e os anexos (cancelar avisa que não pode ser desfeito). O resultado vem por passo; se algum falhar, "Tentar de novo só o que falhou" refaz apenas o restante (`resumeFrom`). As cópias temporárias são apagadas ao concluir ou ao fechar a tela. Sem sessão válida, a tela pede para entrar no app e continuar.
+
+Testar no emulador (sem outro app): `adb shell "am start -n br.edu.ifrn.chamados/.ShareActivity -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT 'texto'"`; para arquivos, indexe-os no MediaStore e passe `-d content://media/external/file/<id> --grant-read-uri-permission`.
+
+Limites desta versão: o destino de "Criar" usa o campus e o centro padrão do SUAP; o compartilhamento pendente não sobrevive se o app for encerrado durante o login.
