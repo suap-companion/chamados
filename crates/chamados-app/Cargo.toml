@@ -9,9 +9,11 @@ chamados-core = { path = "../chamados-core" }
 chamados-sync = { path = "../chamados-sync" }
 suap-core = { path = "../suap-core" }
 thiserror = "2"
+# Desenha o QR do pareamento no terminal (sem recursos de imagem): evita escrever um codificador de QR.
+qrcode = { version = "0.14", default-features = false }
+url = "2"
 
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt"] }
-url = "2"
 wiremock = "0.6"

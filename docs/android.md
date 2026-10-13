@@ -100,3 +100,14 @@ Abaixo das ações, a seção **Gestão** do detalhe oferece o que o CLI já faz
 Pessoas e tags são digitadas por nome ou matrícula (listas separadas por vírgula); o SUAP resolve o que bate. Se o texto for ambíguo ou não existir, o erro lista as opções disponíveis. Ao dar certo, o detalhe é atualizado e a mensagem diz quem foi atribuído, quais tags mudaram e quem entrou ou saiu.
 
 A fachada ganhou `assign`, `escalate`, `returnTicket`, `reclassify`, `addTags`/`removeTags` e `addInterested`/`removeInterested`. Fica para depois escolher atendentes e tags numa lista, em vez de digitar.
+
+## Títulos e sincronização no app (M7)
+
+- **Títulos locais**: aparecem na lista e são editados no detalhe do chamado (`Chamados.titles/setTitle/removeTitle`; mesmo `titles.json` do CLI).
+- **Sincronização cifrada** (`chamados-mobile`, módulo `sync`): mesmo documento e mesma criptografia do CLI (perfis + títulos, XChaCha20-Poly1305), só com bucket `r2`/`s3` (uma pasta local não existe em outro aparelho). Tela: Configurações > Sincronização entre dispositivos.
+- **Sem chaveiro no Android**: a chave fica em `config/sync.key` e as credenciais do bucket em `config/s3-credentials` (`0600`), no armazenamento privado do app; nunca vão no documento sincronizado. Envolver a chave com o Android Keystore fica como melhoria.
+- **Pareamento**: `chamados sync key pair` (CLI) mostra um QR (e o texto `chamados-sync://pareamento?...`) com a **chave** e os dados **não secretos** do bucket (endpoint, bucket, região, prefixo). O app lê o QR (CameraX + ML Kit, modelo embutido; a câmera só é pedida nessa hora) ou aceita o texto colado. **As credenciais do bucket não vão no QR**: digite-as no app. O QR contém a chave: não o mostre em tela compartilhada. Trocar uma chave existente pede confirmação.
+- **Perfil do app**: o app entra na sincronização com `updated_at = 0`, então as configurações de outro aparelho sempre valem mais e o app não muda o endereço do SUAP de um perfil já sincronizado.
+- **Sincronização é manual** ("Sincronizar agora"); a periódica em segundo plano entra com o M6 (WorkManager).
+- **Testado**: no emulador, com um S3 falso em `localhost` (`adb reverse tcp:9000 tcp:9000`; o `network_security_config` libera HTTP para `localhost` só para isso, e a fachada só aceita http em loopback): pareamento por texto, credenciais, título do CLI na lista do app e título do app no CLI. **Não exercitado**: a leitura real do QR (o emulador não tem câmera utilizável; sem câmera o leitor mostra o aviso para colar o texto) e um bucket R2 de verdade.
+- **Dependências novas** (justificadas): `qrcode` (Rust, sem recursos de imagem) para desenhar o QR no terminal; `androidx.camera:*` 1.4.2 e `com.google.mlkit:barcode-scanning` 17.3.0 para ler o QR no app (o APK de depuração com as 3 ABIs passa de ~47 MB; o de release terá splits por ABI no M8).

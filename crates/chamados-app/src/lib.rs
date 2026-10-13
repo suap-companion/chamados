@@ -12,6 +12,7 @@ pub mod batch;
 pub mod download;
 pub mod files;
 pub mod listing;
+pub mod pairing;
 pub mod pdf;
 pub mod share;
 pub mod syncing;

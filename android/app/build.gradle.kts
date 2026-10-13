@@ -12,7 +12,7 @@ android {
         minSdk = 24
         targetSdk = 37
         versionCode = 1
-        versionName = "0.32.0"
+        versionName = "0.33.0"
     }
 
     buildTypes {
@@ -31,4 +31,12 @@ dependencies {
     // O UniFFI do Kotlin chama a biblioteca Rust por JNA.
     implementation("net.java.dev.jna:jna:5.17.0@aar")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    // Ler o QR do pareamento da sincronização: câmera (CameraX) + leitor de códigos (ML Kit, com o
+    // modelo embutido: funciona sem rede e sem os serviços do Google).
+    implementation("androidx.camera:camera-core:1.4.2")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 }
