@@ -3,6 +3,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Só para ler o QR do pareamento da sincronização; pedida na hora, e o app funciona sem ela. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Avisos do acompanhamento em segundo plano (Android 13+: pedida ao ligar o acompanhamento). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <application
         android:label="Chamados"

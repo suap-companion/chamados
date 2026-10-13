@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -279,7 +281,10 @@ fun SettingsScreen(model: MainViewModel) {
     BackHandler { model.back() }
     var url by remember { mutableStateOf(model.baseUrl) }
     Scaffold(topBar = { Bar("Configurações", onBack = model::back) }) { padding ->
-        Column(Modifier.padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             model.listError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             OutlinedTextField(
                 value = url,
@@ -295,6 +300,7 @@ fun SettingsScreen(model: MainViewModel) {
             Button(onClick = { model.changeBaseUrl(url) }, modifier = Modifier.fillMaxWidth()) { Text("Salvar e entrar") }
             OutlinedButton(onClick = model::openSync, modifier = Modifier.fillMaxWidth()) { Text("Sincronização entre dispositivos") }
             OutlinedButton(onClick = model::logout, modifier = Modifier.fillMaxWidth()) { Text("Sair (esquecer a sessão)") }
+            WatchSection()
             Text("Versão ${uniffi.chamados_mobile.coreVersion()}", style = MaterialTheme.typography.labelMedium)
         }
     }
