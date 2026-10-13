@@ -2,4 +2,6 @@
 <!-- Só a pasta onde o app guarda, de passagem, o anexo baixado para abri-lo em outro aplicativo. -->
 <paths>
     <cache-path name="anexos" path="anexos/" />
+    <!-- O ZIP do chamado exportado, de passagem, para entregá-lo por "Compartilhar". -->
+    <cache-path name="exportar" path="exportar/" />
 </paths>

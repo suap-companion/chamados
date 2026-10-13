@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -199,6 +200,11 @@ fun DetailScreen(model: MainViewModel, id: String) {
         downloaded?.let { openFile(context, it.path) }
         model.downloaded = null
     }
+    val exported = model.exported
+    LaunchedEffect(exported) {
+        exported?.let { shareZip(context, it.path) }
+        model.exported = null
+    }
     Scaffold(topBar = { Bar("Chamado #$id", onBack = model::back) }) { padding ->
         Column(Modifier.padding(padding)) {
             when {
@@ -268,7 +274,34 @@ private fun TitleSection(model: MainViewModel, id: String) {
         OutlinedButton(onClick = { model.setArchived(id, !isArchived) }) {
             Text(if (isArchived) "Desarquivar" else "Arquivar (só no app e na sincronização)")
         }
+        var asking by remember(id) { mutableStateOf(false) }
+        OutlinedButton(onClick = { asking = true }, enabled = !model.exporting) {
+            Text(if (model.exporting) "Gerando o ZIP…" else "Exportar como ZIP")
+        }
+        if (asking) {
+            AlertDialog(
+                onDismissRequest = { asking = false },
+                title = { Text("Exportar o chamado #$id") },
+                text = { Text("O ZIP leva o texto (chamado.md), os dados (chamado.json) e, se quiser, os anexos. Depois você escolhe para onde enviá-lo.") },
+                confirmButton = { TextButton(onClick = { asking = false; model.exportTicket(id, true) }) { Text("Com anexos") } },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = { asking = false; model.exportTicket(id, false) }) { Text("Sem anexos") }
+                        TextButton(onClick = { asking = false }) { Text("Cancelar") }
+                    }
+                },
+            )
+        }
     }
+}
+
+/** Entrega o ZIP exportado ao aplicativo que a pessoa escolher (e-mail, nuvem, outro app...). */
+private fun shareZip(context: Context, path: String) {
+    val file = File(path)
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+    val intent = Intent(Intent.ACTION_SEND).setType("application/zip").putExtra(Intent.EXTRA_STREAM, uri)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    runCatching { context.startActivity(Intent.createChooser(intent, file.name)) }
 }
 
 /** Abre o arquivo baixado no aplicativo que o usuário escolher. */
