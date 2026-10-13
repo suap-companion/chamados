@@ -196,9 +196,17 @@ fn native_store() -> Result<std::sync::Arc<keyring_core::CredentialStore>, SyncE
     Ok(apple_native_keyring_store::keychain::Store::new()?)
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "android"))))]
 fn native_store() -> Result<std::sync::Arc<keyring_core::CredentialStore>, SyncError> {
     Ok(zbus_secret_service_keyring_store::Store::new()?)
+}
+
+/// Android has no Secret Service: the app keeps secrets in its own secure store (Android Keystore).
+#[cfg(target_os = "android")]
+fn native_store() -> Result<std::sync::Arc<keyring_core::CredentialStore>, SyncError> {
+    Err(SyncError::Key(
+        "there is no system keyring on Android: use the app's secure store".to_owned(),
+    ))
 }
 
 /// Refuses a key file other users can read (Unix); other platforms rely on the profile directory.
