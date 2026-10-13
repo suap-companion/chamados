@@ -25,3 +25,12 @@ rustc-ice-*.txt
 
 # Binários locais
 /chamados.exe
+
+# Aplicativo Android: o que é gerado pelo build (bibliotecas Rust, ligações Kotlin, Gradle)
+/android-spike/
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+/android/app/src/main/jniLibs/
+/android/app/src/main/java/uniffi/

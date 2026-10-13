@@ -1,0 +1,34 @@
+[package]
+name = "chamados-mobile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# cdylib: a biblioteca que o Android carrega; lib: para os testes e para o gerador de ligações.
+crate-type = ["cdylib", "lib"]
+name = "chamados_mobile"
+
+[features]
+# Só para gerar as ligações; não entra na biblioteca do aplicativo.
+bindgen = ["uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[dependencies]
+chamados-core = { path = "../chamados-core" }
+chamados-sync = { path = "../chamados-sync" }
+suap-core = { path = "../suap-core" }
+# Ligações Kotlin/Swift geradas a partir do código Rust (a fachada do app).
+uniffi = { version = "0.29", features = ["tokio"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt"] }
+wiremock = "0.6"

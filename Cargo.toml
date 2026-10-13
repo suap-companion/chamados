@@ -4,10 +4,20 @@ members = [
     "crates/chamados-core",
     "crates/chamados-cli",
     "crates/chamados-sync",
+    "crates/chamados-mobile",
 ]
 resolver = "2"
 
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "0.25.0"
+version = "0.26.0"
+
+# Perfil das bibliotecas do aplicativo móvel: menor, não mais rápido (`cargo ndk ... --profile mobile`).
+[profile.mobile]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
