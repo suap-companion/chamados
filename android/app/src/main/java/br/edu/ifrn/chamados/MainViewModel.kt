@@ -1,14 +1,12 @@
 package br.edu.ifrn.chamados
 
 import android.app.Application
-import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.File
-import java.net.URI
 import kotlinx.coroutines.launch
 import uniffi.chamados_mobile.Chamados
 import uniffi.chamados_mobile.ChamadosException
@@ -37,12 +35,11 @@ fun Throwable.readable(): String =
     (this as? ChamadosException.Failed)?.detail ?: (message ?: toString())
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    private val prefs = application.getSharedPreferences("chamados", Context.MODE_PRIVATE)
     private var core: Chamados? = null
 
     var screen by mutableStateOf<Screen>(Screen.Start)
         private set
-    var baseUrl by mutableStateOf(prefs.getString("base_url", PRODUCTION_URL) ?: PRODUCTION_URL)
+    var baseUrl by mutableStateOf(CoreAccess.baseUrl(application))
         private set
 
     // Lista
@@ -71,12 +68,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         start()
     }
 
-    /** Cada endereço do SUAP tem a sua pasta, para as sessões não se misturarem. */
-    private fun dataDirFor(url: String): File {
-        val host = runCatching { URI(url).authority }.getOrNull() ?: "suap"
-        val name = host.replace(Regex("[^A-Za-z0-9.-]"), "_")
-        return File(getApplication<Application>().filesDir, "perfil-$name")
-    }
+    private fun dataDirFor(url: String): File = CoreAccess.dataDir(getApplication(), url)
 
     private fun open(): Chamados {
         core?.let { return it }
@@ -196,7 +188,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun changeBaseUrl(url: String) {
         val clean = url.trim().let { if (it.endsWith("/")) it else "$it/" }
-        prefs.edit().putString("base_url", clean).apply()
+        CoreAccess.saveBaseUrl(getApplication(), clean)
         baseUrl = clean
         core = null
         listError = null
