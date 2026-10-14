@@ -100,6 +100,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var downloading by mutableStateOf<UInt?>(null)
         private set
     var downloaded by mutableStateOf<DownloadedFile?>(null)
+    var exported by mutableStateOf<DownloadedFile?>(null)
+    var exporting by mutableStateOf(false)
+        private set
 
     // Ações e novo chamado
     var actionBusy by mutableStateOf(false)
@@ -176,6 +179,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { open().titles() }.onSuccess { found -> titles = found.associate { it.id to it.title } }
             runCatching { open().archivedIds() }.onSuccess { found -> archived = found.toSet() }
+        }
+    }
+
+    /** Gera o ZIP do chamado (texto, dados e, se pedido, os anexos) para entregar por "Compartilhar". */
+    fun exportTicket(id: String, attachments: Boolean) {
+        viewModelScope.launch {
+            exporting = true
+            actionMessage = null
+            try {
+                val folder = File(getApplication<Application>().cacheDir, "exportar").apply { mkdirs() }
+                // Um ZIP por vez e sem acumular: a pasta é só de passagem.
+                folder.listFiles()?.forEach { it.delete() }
+                exported = DownloadedFile(open().exportTicket(id, attachments, folder.absolutePath))
+            } catch (error: Throwable) {
+                actionIsError = true
+                actionMessage = error.readable()
+            } finally {
+                exporting = false
+            }
         }
     }
 

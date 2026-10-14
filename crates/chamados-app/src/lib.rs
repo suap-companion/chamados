@@ -10,6 +10,7 @@ use thiserror::Error;
 pub mod apply;
 pub mod batch;
 pub mod download;
+pub mod export;
 pub mod files;
 pub mod listing;
 pub mod pairing;
@@ -17,6 +18,7 @@ pub mod pdf;
 pub mod share;
 pub mod syncing;
 pub mod watching;
+pub mod zip;
 
 /// Falhas dos serviços: do SUAP (`Ticket`), do disco (`Io`) ou uma recusa já explicada em texto.
 #[derive(Debug, Error)]

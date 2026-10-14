@@ -169,6 +169,18 @@ chamados title 559298 --remove           # remove
 
 O título tem uma única linha, de até 120 caracteres. Fica em `titles.json` no diretório de dados (`titles-<perfil>.json` nos demais perfis), com a hora de cada alteração e as remoções registradas, para permitir sincronização futura. Esse arquivo é dado seu: se estiver corrompido, o comando informa o erro em vez de descartá-lo.
 
+### Exportar um chamado como ZIP
+
+Para guardar o histórico ou entregar o conteúdo a uma análise (por exemplo, por IA), `chamados export` gera um ZIP com `chamado.md` (texto legível), `chamado.json` (dados estruturados, com o título local e a marca de arquivado) e a pasta `anexos/`:
+
+```bash
+chamados export 559298                    # chamado-559298.zip na pasta atual
+chamados export 559298 -o ~/analise       # em outra pasta (ou -o caminho/arquivo.zip)
+chamados export 559298 --sem-anexos       # só o texto e os dados
+```
+
+O ZIP não leva sessão nem cookies. Não sobrescreve um arquivo existente sem `--force`.
+
 ### Arquivar chamados
 
 Chegam chamados que você não consegue encerrar no SUAP e que só atrapalham a caixa. Como o título, **arquivar é um controle só seu** (o SUAP não tem esse estado e nada é enviado a ele): fica em `archive.json` do perfil e é sincronizado de forma cifrada com o app.

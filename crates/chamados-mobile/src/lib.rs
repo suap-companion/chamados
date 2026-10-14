@@ -6,6 +6,7 @@
 
 uniffi::setup_scaffolding!();
 
+mod exporting;
 mod sync;
 mod watching;
 

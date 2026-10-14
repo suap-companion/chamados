@@ -137,3 +137,11 @@ A fachada ganhou `assign`, `escalate`, `returnTicket`, `reclassify`, `addTags`/`
 - **Fonte**: o DS usa Rawline; **não foi embutida**, pois falta confirmar a licença de redistribuição (e baixar a fonte exige sua autorização). Enquanto isso, a fonte do sistema.
 - **Não feito**: o contorno de foco tracejado dourado do DS (relevante só para teclado/acessibilidade no Android) e os componentes próprios (cabeçalho com logo, brasão). Alvos de toque seguem o mínimo de 48 dp do Material 3.
 - **Testado**: lista e detalhe no emulador, claro e escuro (`adb shell cmd uimode night yes|no`).
+
+## Exportar chamado como ZIP (#104)
+
+- **Conteúdo** (`chamados-app::export`): `chamado.md` (campos, linha do tempo e anexos em texto legível), `chamado.json` (os mesmos dados estruturados, com `local_title`, `archived` e o caminho de cada anexo) e, em `anexos/`, os anexos com nomes seguros e sem repetição (as mesmas regras do `download`). Não leva cookies, sessão nem dados de outros chamados.
+- **CLI**: `chamados export <id> [-o pasta|arquivo.zip] [--sem-anexos] [--force]` (grava `chamado-<id>.zip`; não sobrescreve sem `--force`).
+- **App**: botão "Exportar como ZIP" no detalhe; pergunta se leva os anexos e entrega o arquivo pelo "Compartilhar" do Android (a cópia fica em cache, uma por vez). `Chamados.exportTicket(id, anexos, pasta)` na fachada.
+- **ZIP sem dependência**: escritor mínimo (`zip.rs`: arquivos "stored", nomes UTF-8, CRC-32, sem ZIP64: até 4 GB e 65535 arquivos, com erro claro além disso); conferido com o `zipfile` do Python.
+- **Testado**: no emulador (exportar o #10 com anexos e ver o seletor de compartilhamento com `chamado-10.zip`, e abrir o ZIP gerado pelo app). Não exercitado: entregar a um app de destino de verdade e chamado com anexos reais no aparelho (cobertos por testes Rust com SUAP simulado).

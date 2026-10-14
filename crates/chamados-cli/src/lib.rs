@@ -18,6 +18,7 @@ use std::{
 use chamados_app::{
     batch::send_messages,
     download::download_attachments,
+    export::{export_file_name, export_ticket, ExportInfo},
     listing::{narrow, without_archived, ArchiveView},
     pairing::{qr_text, Pairing},
     pdf::text_to_pdf,
@@ -206,6 +207,21 @@ enum Command {
         /// Remove o título local.
         #[arg(long)]
         remove: bool,
+    },
+    /// Exporta o chamado como um ZIP (chamado.md legível, chamado.json estruturado e a pasta anexos/),
+    /// útil para guardar o histórico ou para análise por IA.
+    Export {
+        /// Número do chamado.
+        id: u64,
+        /// Pasta onde gravar `chamado-<id>.zip` (padrão: a atual) ou o caminho de um arquivo `.zip`.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Não baixa os anexos: só o texto e os dados.
+        #[arg(long)]
+        sem_anexos: bool,
+        /// Sobrescreve o ZIP se já existir.
+        #[arg(long)]
+        force: bool,
     },
     /// Arquiva chamados: some das listas e do `watch` (o SUAP não tem esta situação; é um controle só seu,
     /// guardado nesta máquina e sincronizado cifrado). Veja os arquivados com `list --arquivados`.
@@ -830,6 +846,12 @@ fn dispatch(
         Some(Command::Start { id, assume }) => start(paths, id, assume, out),
         Some(Command::Cancel { message, yes }) => cancel(paths, message, yes, input, out),
         Some(Command::Title { id, text, remove }) => title(paths, id, text, remove, out),
+        Some(Command::Export {
+            id,
+            output,
+            sem_anexos,
+            force,
+        }) => export(paths, id, output, !sem_anexos, force, out),
         Some(Command::Archive { ids }) => archive(paths, &ids, true, out),
         Some(Command::Unarchive { ids }) => archive(paths, &ids, false, out),
         Some(Command::Status) => {
@@ -2001,6 +2023,54 @@ fn unix_now() -> u64 {
         .map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 
+fn export(
+    paths: &AppPaths,
+    id: u64,
+    output: Option<PathBuf>,
+    attachments: bool,
+    force: bool,
+    out: &mut dyn Write,
+) -> Result<(), Box<dyn Error>> {
+    let (runtime, client) = connect(paths)?;
+    let source = SuapTicketSource::new(&client, TicketQueue::Support);
+    let details = runtime
+        .block_on(source.get_ticket(&id.to_string()))
+        .map_err(explain)?;
+    let titles = TitleStore::open(paths.titles_file())?;
+    let archived = ArchiveStore::open(paths.archive_file())?.is_archived(&details.id);
+    let info = ExportInfo {
+        local_title: titles.get(&details.id),
+        archived,
+        exported_at: unix_now() / 1_000,
+    };
+    let zip = runtime
+        .block_on(export_ticket(&source, &details, &info, attachments))
+        .map_err(app_error)?;
+    // A `.zip` path is the file itself; anything else is the folder where `chamado-<id>.zip` goes.
+    let target = match output {
+        Some(file)
+            if file
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("zip")) =>
+        {
+            file
+        }
+        other => other.unwrap_or_default().join(export_file_name(&details)),
+    };
+    if target.exists() && !force {
+        let message = format!(
+            "já existe {} (use --force para sobrescrever)",
+            target.display()
+        );
+        return Err(message.into());
+    }
+    fs::create_dir_all(target.parent().unwrap_or(std::path::Path::new(".")))?;
+    fs::write(&target, &zip)?;
+    let (shown, size) = (target.display(), zip.len());
+    writeln!(out, "Chamado #{id} exportado: {shown} ({size} bytes)")?;
+    Ok(())
+}
+
 fn archive(
     paths: &AppPaths,
     ids: &[u64],
@@ -2909,6 +2979,74 @@ mod tests {
     }
 
     #[test]
+    fn export_writes_a_zip_with_the_ticket_and_its_attachments() {
+        let (_dir, paths) = paths();
+        let (runtime, server) = mock_server(true);
+        run_args(&["profile", "init", "--base-url", &server.uri()], &paths);
+        let page = r#"<main id="content"><div class="title-container"><h2>Chamado 7</h2></div>
+            <div data-tab="linha_tempo"><ul class="timeline"><li><div class="timeline-date">1</div>
+            <div class="timeline-content"><a href="/djtools/arquivo/centralservicos/chamadoanexo/1/anexo/">a.csv</a></div></li></ul></div></main>"#;
+        for (at, body) in [
+            ("/centralservicos/chamado/7/", page),
+            (
+                "/djtools/arquivo/centralservicos/chamadoanexo/1/anexo/",
+                "a,b",
+            ),
+        ] {
+            mount_listing(
+                &runtime,
+                &server,
+                at,
+                ResponseTemplate::new(200).set_body_string(body),
+            );
+        }
+        run_args(&["title", "7", "Meu título"], &paths);
+        run_args(&["archive", "7"], &paths);
+
+        let folder = _dir.path().join("saida");
+        let (code, out, err) = run_args(&["export", "7", "-o", folder.to_str().unwrap()], &paths);
+        assert_eq!((code, err.as_str()), (0, ""));
+        assert!(
+            out.starts_with("Chamado #7 exportado: ") && out.contains("chamado-7.zip"),
+            "{out}"
+        );
+        let bytes = std::fs::read(folder.join("chamado-7.zip")).unwrap();
+        assert!(bytes.starts_with(b"PK"));
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(
+            text.contains("anexos/a.csv")
+                && text.contains("Meu título")
+                && text.contains("\"archived\": true")
+        );
+
+        // It does not overwrite by accident; --force does, and --sem-anexos leaves the files out.
+        let (code, _, err) = run_args(&["export", "7", "-o", folder.to_str().unwrap()], &paths);
+        assert_eq!(code, 1);
+        assert!(err.contains("use --force"), "{err}");
+        let file = folder.join("so-texto.ZIP");
+        let args = ["export", "7", "--sem-anexos", "-o", file.to_str().unwrap()];
+        assert_eq!(run_args(&args, &paths).0, 0);
+        let light = std::fs::read(&file).unwrap();
+        assert!(!String::from_utf8_lossy(&light).contains("anexos/a.csv"));
+        let forced = [
+            "export",
+            "7",
+            "--sem-anexos",
+            "--force",
+            "-o",
+            file.to_str().unwrap(),
+        ];
+        assert_eq!(run_args(&forced, &paths).0, 0);
+
+        // A ticket SUAP does not show, or a folder that cannot be created, are plain errors.
+        let (code, _, _) = run_args(&["export", "99", "-o", folder.to_str().unwrap()], &paths);
+        assert_eq!(code, 1);
+        let blocked = folder.join("chamado-7.zip").join("dentro");
+        let (code, _, _) = run_args(&["export", "7", "-o", blocked.to_str().unwrap()], &paths);
+        assert_eq!(code, 1);
+    }
+
+    #[test]
     fn archived_tickets_leave_the_lists_until_they_are_unarchived() {
         let (_dir, paths) = paths();
         let (runtime, server) = mock_server(true);
@@ -3591,8 +3729,9 @@ Chamado #8 não estava arquivado.
 
     /// Commands without free text. A new command must be added to one of the two lists, which forces
     /// a decision about RS-02 (and a test for it) whenever a command is created.
-    const NON_TEXT_COMMANDS: [&str; 19] = [
+    const NON_TEXT_COMMANDS: [&str; 20] = [
         "sync",
+        "export",
         "archive",
         "unarchive",
         "attach",
