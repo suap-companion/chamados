@@ -34,3 +34,7 @@ rustc-ice-*.txt
 /android/local.properties
 /android/app/src/main/jniLibs/
 /android/app/src/main/java/uniffi/
+
+# Chaves de assinatura do app Android (nunca no repositório)
+*.jks
+*.keystore
