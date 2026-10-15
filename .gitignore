@@ -38,3 +38,4 @@ rustc-ice-*.txt
 # Chaves de assinatura do app Android (nunca no repositório)
 *.jks
 *.keystore
+*.segredos.txt
