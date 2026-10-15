@@ -1,0 +1,135 @@
+name: Android
+
+# Compila o app Android (biblioteca Rust das 3 ABIs + Gradle) e assina o APK. É chamado pela release
+# (release.yml) e pode ser rodado à mão (Actions > Android > Run workflow) para testar o build sem publicar
+# nada: o APK assinado fica como artefato da execução.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag ou commit a compilar
+        default: main
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch, tag ou commit a compilar
+        type: string
+        required: true
+    outputs:
+      signed:
+        description: "true quando o APK saiu assinado (artefato apk)"
+        value: ${{ jobs.apk.outputs.signed }}
+    secrets:
+      ANDROID_KEYSTORE_B64:
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    outputs:
+      signed: ${{ steps.sign.outputs.signed }}
+    env:
+      NDK_VERSION: 29.0.14206865
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+
+      - name: Install JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install Android platform, build tools and NDK
+        shell: bash
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" "platforms;android-37.0" "build-tools;36.0.0" "ndk;${NDK_VERSION}"
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build the Rust library for the three ABIs
+        shell: bash
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/${NDK_VERSION}"
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -P 24 \
+            -o android/app/src/main/jniLibs build --profile mobile -p chamados-mobile
+
+      - name: Generate the Kotlin bindings
+        # Saem da biblioteca do host: a do Android, com strip, perde os metadados do UniFFI.
+        run: |
+          cargo build -p chamados-mobile
+          cargo run -p chamados-mobile --features bindgen --bin uniffi-bindgen -- generate \
+            --library target/debug/libchamados_mobile.so \
+            --language kotlin --no-format --out-dir android/app/src/main/java
+
+      - name: Prepare the signing key
+        id: key
+        if: env.KEYSTORE_B64 != ''
+        shell: bash
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          {
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.jks"
+            echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
+            echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Build the APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Verify the signature
+        id: sign
+        shell: bash
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::ANDROID_KEYSTORE_B64 não está configurado, então o APK foi compilado mas não é publicado (veja docs/android.md)."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          "$apksigner" verify --print-certs "$apk"
+          cp "$apk" chamados-android.apk
+          ls -l chamados-android.apk
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the signed APK
+        if: steps.sign.outputs.signed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: apk
+          path: chamados-android.apk
+          if-no-files-found: error
