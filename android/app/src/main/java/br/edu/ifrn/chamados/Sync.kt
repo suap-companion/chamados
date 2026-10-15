@@ -82,12 +82,7 @@ fun SyncScreen(model: MainViewModel) {
         )
     }
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Sincronização") },
-                navigationIcon = { TextButton(onClick = model::back) { Text("‹ Voltar") } },
-            )
-        },
+        topBar = { GovBrHeader("Sincronização", onBack = model::back) },
     ) { padding ->
         Column(
             Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),

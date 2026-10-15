@@ -222,12 +222,7 @@ fun NewTicketScreen(model: MainViewModel) {
         if (uris.isNotEmpty()) model.onPicked(uris, 3u)
     }
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Novo chamado") },
-                navigationIcon = { TextButton(onClick = model::back) { Text("‹ Voltar") } },
-            )
-        },
+        topBar = { GovBrHeader("Novo chamado", onBack = model::back) },
     ) { padding ->
         Column(
             Modifier.padding(padding).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState()),
