@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # Um único PR com as atualizações de actions dos workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

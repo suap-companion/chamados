@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// A versão do app é a do workspace Rust (Cargo.toml): uma fonte só. versionCode = maior*10000 + menor*100 + correção.
+val (major, minor, patch) = rootProject.projectDir.resolve("../Cargo.toml").readLines()
+    .firstNotNullOf { Regex("""^version\s*=\s*"(\d+)\.(\d+)\.(\d+)"""").find(it) }
+    .destructured
+
 android {
     namespace = "br.edu.ifrn.chamados"
     compileSdk = 37
@@ -11,12 +16,30 @@ android {
         applicationId = "br.edu.ifrn.chamados"
         minSdk = 24
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.37.0"
+        versionCode = major.toInt() * 10000 + minor.toInt() * 100 + patch.toInt()
+        versionName = "$major.$minor.$patch"
+    }
+
+    // A chave de assinatura nunca fica no repositório: vem de variáveis de ambiente (veja docs/android.md).
+    // Sem elas o `assembleRelease` gera um APK sem assinatura, que não instala (e a release não o publica).
+    signingConfigs {
+        System.getenv("ANDROID_KEYSTORE_FILE")?.let { keystore ->
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         debug { }
+        release {
+            // Sem R8/ProGuard: JNA e o UniFFI usam reflexão, e o ganho de tamanho viria do Rust, não do Kotlin.
+            isMinifyEnabled = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
+        }
     }
 }
 
