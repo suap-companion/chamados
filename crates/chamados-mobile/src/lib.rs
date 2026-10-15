@@ -18,14 +18,16 @@ use std::{
 use chamados_app::{
     apply::{apply_share, ShareAction, ShareRequest},
     download::download_attachments,
-    listing::narrow,
+    listing::{narrow, Marks},
     share::SharedFile,
 };
 use chamados_core::{
-    parse_ticket_list, ArchiveStore, Attachment, Direction, Reclassification, SuapTicketSource,
-    TicketFilter, TicketQueue, TicketSource, TitleStore,
+    parse_ticket_list, ArchiveStore, Attachment, Direction, Reclassification, SnoozeStore,
+    SuapTicketSource, TicketFilter, TicketQueue, TicketSource, TitleStore,
 };
 use suap_core::{AppPaths, SuapClient, SuapConfig};
+
+use crate::sync::unix_now;
 use url::Url;
 
 /// Erros da fachada, como o aplicativo os vê.
@@ -114,21 +116,25 @@ impl Queue {
     }
 }
 
-/// Quais chamados a lista mostra, quanto ao que a pessoa arquivou neste aparelho.
+/// Quais chamados a lista mostra, quanto ao que a pessoa arquivou ou adiou neste aparelho.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Enum)]
-pub enum ArchiveView {
-    /// Tudo menos os arquivados (as listas de sempre).
+pub enum ListView {
+    /// As listas de sempre: sem os arquivados e sem os adiados que ainda não voltaram; os que já
+    /// voltaram vêm primeiro.
     #[default]
-    Hide,
+    Normal,
     /// Só os arquivados.
-    Only,
+    Archived,
+    /// Só os adiados que ainda não voltaram, do que volta antes ao que volta depois.
+    Snoozed,
 }
 
-impl ArchiveView {
-    fn app(self) -> chamados_app::listing::ArchiveView {
+impl ListView {
+    fn app(self) -> chamados_app::listing::ListView {
         match self {
-            Self::Hide => chamados_app::listing::ArchiveView::Hide,
-            Self::Only => chamados_app::listing::ArchiveView::Only,
+            Self::Normal => chamados_app::listing::ListView::Normal,
+            Self::Archived => chamados_app::listing::ListView::Archived,
+            Self::Snoozed => chamados_app::listing::ListView::Snoozed,
         }
     }
 }
@@ -138,7 +144,7 @@ impl ArchiveView {
 pub struct ListQuery {
     /// Só os chamados cujo título local contém este texto (sem diferenciar maiúsculas).
     pub title: Option<String>,
-    pub archive: ArchiveView,
+    pub view: ListView,
     pub text: Option<String>,
     pub statuses: Vec<String>,
     pub all_statuses: bool,
@@ -360,11 +366,17 @@ impl Chamados {
         query: ListQuery,
     ) -> Result<Vec<TicketSummary>, ChamadosError> {
         let source = SuapTicketSource::new(&self.client, queue.core());
-        let (needle, view) = (query.title.clone(), query.archive.app());
+        let (needle, view) = (query.title.clone(), query.view.app());
         let tickets = source.list_filtered(&query.core()).await.map_err(failed)?;
         let titles = TitleStore::open(self.paths.titles_file()).map_err(failed)?;
         let archive = ArchiveStore::open(self.paths.archive_file()).map_err(failed)?;
-        let tickets = narrow(tickets, &titles, &archive, view, needle.as_deref(), None);
+        let snooze = SnoozeStore::open(self.paths.snooze_file()).map_err(failed)?;
+        let marks = Marks {
+            archive: &archive,
+            snooze: &snooze,
+            now: unix_now(),
+        };
+        let tickets = narrow(tickets, &titles, &marks, view, needle.as_deref(), None);
         Ok(tickets
             .into_iter()
             .map(|ticket| TicketSummary {
@@ -767,7 +779,7 @@ mod tests {
             // An archived ticket leaves the usual list and shows up in the archive view.
             assert!(chamados.set_archived("7".to_owned(), true).unwrap());
             let only = ListQuery {
-                archive: ArchiveView::Only,
+                view: ListView::Archived,
                 ..ListQuery::default()
             };
             let usual = chamados.list(Queue::Mine, ListQuery::default()).await;
@@ -778,7 +790,7 @@ mod tests {
                 .set_title("7".to_owned(), "Rede".to_owned())
                 .unwrap();
             let by_title = |title: &str| ListQuery {
-                archive: ArchiveView::Only,
+                view: ListView::Archived,
                 title: Some(title.to_owned()),
                 ..ListQuery::default()
             };
@@ -796,6 +808,23 @@ mod tests {
                 .unwrap()
                 .is_empty());
             assert!(chamados.set_archived("7".to_owned(), false).unwrap());
+
+            // A snoozed ticket is out of the usual list until it comes back, and has its own list.
+            chamados
+                .snooze("7".to_owned(), unix_now() + 3_600_000)
+                .unwrap();
+            let waiting = ListQuery {
+                view: ListView::Snoozed,
+                ..ListQuery::default()
+            };
+            let snoozed = chamados.list(Queue::Mine, waiting).await.unwrap();
+            assert_eq!(snoozed[0].id, "7");
+            let usual = chamados.list(Queue::Mine, ListQuery::default()).await;
+            assert!(usual.unwrap().is_empty());
+            std::fs::write(chamados.paths.snooze_file(), "{").unwrap();
+            let damaged = chamados.list(Queue::Mine, ListQuery::default()).await;
+            assert!(damaged.is_err());
+            std::fs::remove_file(chamados.paths.snooze_file()).unwrap();
 
             page(
                 &server,

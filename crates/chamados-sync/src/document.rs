@@ -12,7 +12,7 @@
 
 use std::{collections::BTreeMap, fs};
 
-use chamados_core::{ArchiveEntry, ArchiveStore, TitleEntry, TitleStore};
+use chamados_core::{ArchiveEntry, ArchiveStore, SnoozeEntry, SnoozeStore, TitleEntry, TitleStore};
 use serde::{Deserialize, Serialize};
 use suap_core::{
     list_profiles, load_config, remove_config, save_config, AppPaths, OpenDefaults, SuapConfig,
@@ -70,6 +70,10 @@ pub struct ProfileDoc {
     /// versions before 0.35, which would drop it when they upload their own merge.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub archived: BTreeMap<String, ArchiveEntry>,
+    /// Snoozed tickets (and cleared snoozes, as tombstones). Absent in documents written by
+    /// versions before 0.38, which would drop it when they upload their own merge.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub snoozed: BTreeMap<String, SnoozeEntry>,
     /// When the profile was removed (milliseconds since the epoch), if it ever was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub removed_at: Option<u64>,
@@ -164,15 +168,26 @@ fn merge_profiles(left: &ProfileDoc, right: &ProfileDoc) -> ProfileDoc {
             }
         }
     }
+    let mut snoozed = left.snoozed.clone();
+    for (id, incoming) in &right.snoozed {
+        match snoozed.get(id) {
+            Some(existing) if !incoming.newer_than(existing) => {}
+            _ => {
+                snoozed.insert(id.clone(), incoming.clone());
+            }
+        }
+    }
     // Whatever was written before the removal belongs to the profile that no longer exists.
     if let Some(removed_at) = removed_at {
         titles.retain(|_, entry| entry.updated_at > removed_at);
         archived.retain(|_, entry| entry.updated_at > removed_at);
+        snoozed.retain(|_, entry| entry.updated_at > removed_at);
     }
     ProfileDoc {
         settings,
         titles,
         archived,
+        snoozed,
         removed_at,
     }
 }
@@ -208,12 +223,14 @@ pub fn collect_local(paths: &AppPaths, only: Option<&str>) -> Result<SyncDocumen
         let profile_paths = paths.clone().with_profile(&name)?;
         let titles = TitleStore::open(profile_paths.titles_file())?;
         let archive = ArchiveStore::open(profile_paths.archive_file())?;
+        let snooze = SnoozeStore::open(profile_paths.snooze_file())?;
         document.profiles.insert(
             name.clone(),
             ProfileDoc {
                 settings: Some(SettingsEntry::from_config(&config)),
                 titles: titles.entries().clone(),
                 archived: archive.entries().clone(),
+                snoozed: snooze.entries().clone(),
                 removed_at: removals.get(&name).copied(),
             },
         );
@@ -240,6 +257,8 @@ pub struct ApplyReport {
     pub titles_updated: usize,
     /// Archive entries added or replaced.
     pub archived_updated: usize,
+    /// Snooze entries added or replaced.
+    pub snoozed_updated: usize,
 }
 
 impl ApplyReport {
@@ -249,6 +268,7 @@ impl ApplyReport {
             + self.profiles_removed
             + self.titles_updated
             + self.archived_updated
+            + self.snoozed_updated
     }
 }
 
@@ -313,17 +333,27 @@ pub fn apply_merged(
         if write && changed > 0 {
             archive.save()?;
         }
+        let mut snooze = SnoozeStore::open(profile_paths.snooze_file())?;
+        let mut changed = 0;
+        for (id, entry) in &remote.snoozed {
+            changed += usize::from(snooze.merge_entry(id, entry)?);
+        }
+        report.snoozed_updated += changed;
+        if write && changed > 0 {
+            snooze.save()?;
+        }
     }
     Ok(report)
 }
 
-/// Deletes what a profile keeps on this machine: its settings, session, titles and archive marks.
+/// Deletes what a profile keeps on this machine: its settings, session, titles, archive and snooze marks.
 fn delete_profile(paths: &AppPaths) -> Result<(), SyncError> {
     remove_config(paths)?;
     for file in [
         paths.session_file(),
         paths.titles_file(),
         paths.archive_file(),
+        paths.snooze_file(),
     ] {
         if file.exists() {
             fs::remove_file(file)?;
@@ -362,6 +392,7 @@ mod tests {
                 .map(|(id, e)| ((*id).to_owned(), e.clone()))
                 .collect(),
             archived: BTreeMap::new(),
+            snoozed: BTreeMap::new(),
         }
     }
 
@@ -678,7 +709,8 @@ mod tests {
                 settings_updated: 1,
                 profiles_removed: 0,
                 titles_updated: 2,
-                archived_updated: 0
+                archived_updated: 0,
+                snoozed_updated: 0
             }
         );
         assert_eq!(dry.total(), 4);
@@ -806,6 +838,73 @@ mod tests {
         )]);
         apply_merged(&paths, &gone, None, true).unwrap();
         assert!(!paths.archive_file().exists());
+    }
+
+    #[test]
+    fn snooze_marks_merge_apply_and_follow_the_profile_removal() {
+        let snooze = |until: Option<u64>, at: u64| SnoozeEntry {
+            until,
+            updated_at: at,
+        };
+        let with_marks = |marks: &[(&str, SnoozeEntry)]| ProfileDoc {
+            snoozed: marks
+                .iter()
+                .map(|(id, entry)| ((*id).to_owned(), entry.clone()))
+                .collect(),
+            ..ProfileDoc::default()
+        };
+        let a = with_marks(&[("1", snooze(Some(100), 5)), ("2", snooze(Some(7), 1))]);
+        let b = with_marks(&[("1", snooze(None, 6)), ("3", snooze(Some(9), 2))]);
+        let merged = merge_profiles(&a, &b);
+        assert_eq!(merged, merge_profiles(&b, &a));
+        assert_eq!(merged.snoozed["1"].until, None);
+        assert_eq!(merged.snoozed["2"].until, Some(7));
+        let json = serde_json::to_string(&ProfileDoc::default()).unwrap();
+        assert!(
+            !json.contains("snoozed"),
+            "an empty set stays out of the document"
+        );
+        let old: ProfileDoc = serde_json::from_str(r#"{"settings":null,"titles":{}}"#).unwrap();
+        assert!(old.snoozed.is_empty());
+
+        let removed = ProfileDoc {
+            removed_at: Some(4),
+            ..ProfileDoc::default()
+        };
+        let kept = merge_profiles(&a, &removed);
+        assert_eq!(kept.snoozed.keys().collect::<Vec<_>>(), ["1"]);
+
+        let (_dir, paths) = paths();
+        save(&paths, "default", true, 5);
+        let remote = document(&[("default", with_marks(&[("1", snooze(Some(100), 5))]))]);
+        let dry = apply_merged(&paths, &remote, None, false).unwrap();
+        assert_eq!((dry.snoozed_updated, dry.total()), (1, 1));
+        assert!(!paths.snooze_file().exists());
+        apply_merged(&paths, &remote, None, true).unwrap();
+        assert_eq!(
+            SnoozeStore::open(paths.snooze_file()).unwrap().until("1"),
+            Some(100)
+        );
+        assert_eq!(
+            apply_merged(&paths, &remote, None, true)
+                .unwrap()
+                .snoozed_updated,
+            0
+        );
+        let local = collect_local(&paths, None).unwrap();
+        assert_eq!(local.profiles["default"].snoozed["1"].until, Some(100));
+        let bad = document(&[("default", with_marks(&[("../x", snooze(Some(1), 1))]))]);
+        assert!(apply_merged(&paths, &bad, None, true).is_err());
+
+        let gone = document(&[(
+            "default",
+            ProfileDoc {
+                removed_at: Some(99),
+                ..ProfileDoc::default()
+            },
+        )]);
+        apply_merged(&paths, &gone, None, true).unwrap();
+        assert!(!paths.snooze_file().exists());
     }
 
     #[test]

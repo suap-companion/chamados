@@ -11,13 +11,14 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import uniffi.chamados_mobile.ArchiveView
 import uniffi.chamados_mobile.Chamados
 import uniffi.chamados_mobile.ChamadosException
 import uniffi.chamados_mobile.ListQuery
+import uniffi.chamados_mobile.ListView
 import uniffi.chamados_mobile.Queue
 import uniffi.chamados_mobile.ShareJob
 import uniffi.chamados_mobile.ShareKind
+import uniffi.chamados_mobile.SnoozeItem
 import uniffi.chamados_mobile.SyncSetup
 import uniffi.chamados_mobile.SyncState
 import uniffi.chamados_mobile.TicketSummary
@@ -25,6 +26,9 @@ import uniffi.chamados_mobile.TicketView
 
 const val PRODUCTION_URL = "https://suap.ifrn.edu.br/"
 const val LOCAL_URL = "http://10.0.2.2:8000/"
+
+/** O que a lista mostra: as de sempre, os arquivados ou os adiados (marcas só nossas, sincronizadas). */
+enum class ListMode { Normal, Archived, Snoozed }
 
 /** Em qual tela o app está. */
 sealed interface Screen {
@@ -122,7 +126,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var archived by mutableStateOf<Set<String>>(emptySet())
         private set
-    var showArchived by mutableStateOf(false)
+    var mode by mutableStateOf(ListMode.Normal)
+        private set
+    /** Os adiados (número do chamado → quando volta, e se já voltou sem ninguém ver). */
+    var snoozes by mutableStateOf<Map<String, SnoozeItem>>(emptyMap())
         private set
     private var listStale = false
 
@@ -179,6 +186,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { open().titles() }.onSuccess { found -> titles = found.associate { it.id to it.title } }
             runCatching { open().archivedIds() }.onSuccess { found -> archived = found.toSet() }
+            runCatching { open().snoozed() }.onSuccess { found ->
+                snoozes = found.associateBy { it.id }
+                // Enquanto houver adiados, uma verificação local (sem rede) avisa quando um volta.
+                Watcher.scheduleSnoozes(getApplication(), found.isNotEmpty())
+            }
+        }
+    }
+
+    /** Adia o chamado até `until` (ms desde 1970): some das listas e volta ao topo nessa hora. */
+    fun snooze(id: String, until: ULong) {
+        viewModelScope.launch {
+            try {
+                open().snooze(id, until)
+                actionIsError = false
+                actionMessage = "Adiado até ${formatMoment(until)}."
+                listStale = true
+                loadTitles()
+            } catch (error: Throwable) {
+                actionIsError = true
+                actionMessage = error.readable()
+            }
+        }
+    }
+
+    /** Cancela o adiamento: o chamado volta às listas já. */
+    fun unsnooze(id: String) {
+        viewModelScope.launch {
+            try {
+                open().unsnooze(id)
+                actionIsError = false
+                actionMessage = "Adiamento cancelado."
+                listStale = true
+                loadTitles()
+            } catch (error: Throwable) {
+                actionIsError = true
+                actionMessage = error.readable()
+            }
         }
     }
 
@@ -234,13 +278,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun chooseQueue(next: Queue) {
         queue = next
-        if (next != Queue.SUPPORT && !showArchived) searchText = ""
+        if (next != Queue.SUPPORT && mode == ListMode.Normal) searchText = ""
         refresh()
     }
 
-    /** Alterna entre as listas de sempre e a dos arquivados (da fila escolhida). */
-    fun toggleArchivedView() {
-        showArchived = !showArchived
+    /** Alterna entre as listas de sempre, os arquivados e os adiados (da fila escolhida). */
+    fun chooseMode(next: ListMode) {
+        mode = if (mode == next) ListMode.Normal else next
         searchText = ""
         refresh()
     }
@@ -251,12 +295,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             listError = null
             try {
                 val text = searchText.trim().ifEmpty { null }
-                // Nos arquivados a busca é pelo título local, e todas as situações entram.
-                val query = if (showArchived) {
-                    ListQuery(title = text, archive = ArchiveView.ONLY, text = null, statuses = emptyList(), allStatuses = true, since = null, until = null, page = null)
-                } else {
-                    ListQuery(title = null, archive = ArchiveView.HIDE, text = text, statuses = emptyList(), allStatuses = false, since = null, until = null, page = null)
+                // Nos arquivados e nos adiados a busca é pelo título local, e todas as situações entram.
+                val view = when (mode) {
+                    ListMode.Normal -> ListView.NORMAL
+                    ListMode.Archived -> ListView.ARCHIVED
+                    ListMode.Snoozed -> ListView.SNOOZED
                 }
+                val marked = mode != ListMode.Normal
+                val query = ListQuery(
+                    title = if (marked) text else null, view = view, text = if (marked) null else text,
+                    statuses = emptyList(), allStatuses = marked, since = null, until = null, page = null,
+                )
                 tickets = open().list(queue, query)
                 listStale = false
             } catch (error: Throwable) {
@@ -277,6 +326,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             detailError = null
             try {
                 detail = open().show(id)
+                // Ver um chamado que voltou do adiamento tira a marca de "novo" (em todos os aparelhos).
+                if (snoozes[id]?.due == true) {
+                    open().unsnooze(id)
+                    listStale = true
+                    loadTitles()
+                }
             } catch (error: Throwable) {
                 if (!stillLoggedIn()) screen = Screen.Login else detailError = error.readable()
             } finally {
@@ -563,6 +618,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         tickets = emptyList()
         titles = emptyMap()
         archived = emptySet()
+        snoozes = emptyMap()
         start()
     }
 }

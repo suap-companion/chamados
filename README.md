@@ -181,6 +181,20 @@ chamados export 559298 --sem-anexos       # só o texto e os dados
 
 O ZIP não leva sessão nem cookies. Não sobrescreve um arquivo existente sem `--force`.
 
+### Adiar chamados (snooze)
+
+Como o "Adiar" do Spark: o chamado **some das listas até a data escolhida** e então **volta ao topo, marcado** (`↩`). Como o título e o arquivar, é um controle só seu, guardado nesta máquina e sincronizado cifrado (nada vai ao SUAP).
+
+```bash
+chamados snooze 559298 --amanha                  # amanhã às 8h (também: --fim-de-semana, --semana)
+chamados snooze 559298 559300 --em 3h            # daqui a 30m, 3h, 2d, 1w, 1d12h...
+chamados snooze 559298 --ate "2026-11-02 09:00"  # data e hora (no fuso --fuso; padrão -03:00)
+chamados list --adiados                          # os que esperam, com a data em que voltam
+chamados unsnooze 559298                         # volta já (ou tira a marca de "voltou")
+```
+
+`chamados show` mostra a situação e, se o chamado tinha voltado, tira a marca. `chamados watch` não avisa dos adiados e anuncia, uma vez, quando um volta. O fuso padrão é UTC-03:00; mude com `--fuso=+05:30` ou a variável `CHAMADOS_FUSO`.
+
 ### Arquivar chamados
 
 Chegam chamados que você não consegue encerrar no SUAP e que só atrapalham a caixa. Como o título, **arquivar é um controle só seu** (o SUAP não tem esse estado e nada é enviado a ele): fica em `archive.json` do perfil e é sincronizado de forma cifrada com o app.

@@ -22,6 +22,7 @@ const CONFIG_FILE: &str = "config.toml";
 const SESSION_FILE: &str = "session.cookies";
 const TITLES_FILE: &str = "titles.json";
 const ARCHIVE_FILE: &str = "archive.json";
+const SNOOZE_FILE: &str = "snooze.json";
 const CONFIG_DIR_IN_HOME: [&str; 2] = [".config", "suap"];
 const LOGIN_PATH: &str = "/accounts/login/";
 
@@ -100,6 +101,14 @@ impl AppPaths {
             return self.data_dir.join(ARCHIVE_FILE);
         }
         self.data_dir.join(format!("archive-{}.json", self.profile))
+    }
+
+    /// Tickets snoozed on this machine, per profile (`snooze.json` for `default`, else `snooze-<profile>.json`).
+    pub fn snooze_file(&self) -> PathBuf {
+        if self.profile == DEFAULT_PROFILE {
+            return self.data_dir.join(SNOOZE_FILE);
+        }
+        self.data_dir.join(format!("snooze-{}.json", self.profile))
     }
 
     /// What `chamados watch` last saw, per profile (`watch.json`, else `watch-<profile>.json`).
@@ -782,6 +791,8 @@ mod tests {
         assert!(local_paths.titles_file().ends_with("titles-local-1.json"));
         assert!(default_paths.archive_file().ends_with("archive.json"));
         assert!(local_paths.archive_file().ends_with("archive-local-1.json"));
+        assert!(default_paths.snooze_file().ends_with("snooze.json"));
+        assert!(local_paths.snooze_file().ends_with("snooze-local-1.json"));
         assert!(default_paths.watch_file().ends_with("watch.json"));
         assert!(local_paths.watch_file().ends_with("watch-local-1.json"));
 

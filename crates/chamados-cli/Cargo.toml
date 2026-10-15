@@ -9,7 +9,8 @@ name = "chamados"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
+# `env`: o fuso do adiamento pode vir de CHAMADOS_FUSO.
+clap = { version = "4", features = ["derive", "env"] }
 # Serviços de aplicação compartilhados com os aplicativos móveis (download, lote, PDF, rodadas).
 chamados-app = { path = "../chamados-app" }
 chamados-core = { path = "../chamados-core" }
