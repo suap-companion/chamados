@@ -31,90 +31,28 @@ jobs:
         run: cargo test --workspace --all-targets
 
   android:
-    name: Build Android APK
+    name: Android
     needs: test
+    uses: ./.github/workflows/android.yml
+    with:
+      ref: ${{ github.event.release.tag_name }}
+    secrets: inherit
+
+  android-release:
+    name: Publish Android APK
+    needs: android
+    if: needs.android.outputs.signed == 'true'
     runs-on: ubuntu-latest
-    env:
-      NDK_VERSION: 29.0.14206865
-      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
     steps:
-      - name: Checkout release tag
-        uses: actions/checkout@v7
+      - name: Download the signed APK
+        uses: actions/download-artifact@v8
         with:
-          ref: ${{ github.event.release.tag_name }}
+          name: apk
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
-
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: android
-
-      - name: Install JDK
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: 21
-
-      - name: Install Android platform and NDK
-        shell: bash
-        run: |
-          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$sdkmanager" --licenses > /dev/null || true
-          "$sdkmanager" "platforms;android-37" "ndk;${NDK_VERSION}"
-
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
-
-      - name: Build the Rust library for the three ABIs
-        shell: bash
-        run: |
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/${NDK_VERSION}"
-          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -P 24 \
-            -o android/app/src/main/jniLibs build --profile mobile -p chamados-mobile
-
-      - name: Generate the Kotlin bindings
-        # Saem da biblioteca do host: a do Android, com strip, perde os metadados do UniFFI.
-        run: |
-          cargo build -p chamados-mobile
-          cargo run -p chamados-mobile --features bindgen --bin uniffi-bindgen -- generate \
-            --library target/debug/libchamados_mobile.so \
-            --language kotlin --no-format --out-dir android/app/src/main/java
-
-      - name: Prepare the signing key
-        if: env.KEYSTORE_B64 != ''
-        shell: bash
-        run: |
-          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
-          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
-          echo "ANDROID_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
-          echo "ANDROID_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
-          echo "ANDROID_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
-
-      - name: Build the APK
-        working-directory: android
-        run: ./gradlew --no-daemon assembleRelease
-
-      - name: Verify and name the signed APK
-        if: env.KEYSTORE_B64 != ''
-        shell: bash
-        run: |
-          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
-          "$apksigner" verify --print-certs android/app/build/outputs/apk/release/app-release.apk
-          cp android/app/build/outputs/apk/release/app-release.apk \
-            "${{ env.BINARY }}-${{ github.event.release.tag_name }}-android.apk"
-          ls -l "${{ env.BINARY }}-${{ github.event.release.tag_name }}-android.apk"
-
-      - name: No signing key
-        if: env.KEYSTORE_B64 == ''
-        run: |
-          echo "::warning::ANDROID_KEYSTORE_B64 não está configurado, então o APK foi compilado mas não é publicado (veja docs/android.md)."
+      - name: Name the APK
+        run: mv chamados-android.apk "${{ env.BINARY }}-${{ github.event.release.tag_name }}-android.apk"
 
       - name: Upload release asset
-        if: env.KEYSTORE_B64 != ''
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.release.tag_name }}
