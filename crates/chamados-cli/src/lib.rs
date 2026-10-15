@@ -19,9 +19,10 @@ use chamados_app::{
     batch::send_messages,
     download::download_attachments,
     export::{export_file_name, export_ticket, ExportInfo},
-    listing::{narrow, without_archived, ArchiveView},
+    listing::{narrow, without_hidden, ListView, Marks},
     pairing::{qr_text, Pairing},
     pdf::text_to_pdf,
+    snoozing::{at, format_local, format_offset, parse_duration, parse_local, parse_offset, When},
     syncing::sync_round,
     AppError,
 };
@@ -29,8 +30,8 @@ use chamados_core::{
     validate_title,
     watch::{poll, Snapshot},
     ArchiveStore, Attachment, Direction, Message, NewTicket, Reclassification, Resolution,
-    SuapTicketSource, TicketDetails, TicketError, TicketFilter, TicketQueue, TicketSource,
-    TitleStore, ASSIGNMENTS, ORDERS, RELATIONS, STATUSES,
+    SnoozeStore, SuapTicketSource, TicketDetails, TicketError, TicketFilter, TicketQueue,
+    TicketSource, TitleStore, ASSIGNMENTS, ORDERS, RELATIONS, STATUSES,
 };
 use chamados_sync::{
     backend_from, key_exists, key_source_from, load_key, record_removal, store_key,
@@ -57,6 +58,15 @@ struct Cli {
     /// `NO_COLOR`), `always` (mesmo em pipe) ou `never` (texto com tabulação, para scripts).
     #[arg(long, global = true, value_enum, default_value_t = ColorMode::Auto)]
     color: ColorMode,
+    /// Fuso das datas de `snooze`, `list --adiados` e `watch` (ex.: -03:00, +05:30, UTC).
+    #[arg(
+        long,
+        global = true,
+        env = "CHAMADOS_FUSO",
+        default_value = "-03:00",
+        allow_hyphen_values = true
+    )]
+    fuso: String,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -222,6 +232,16 @@ enum Command {
         /// Sobrescreve o ZIP se já existir.
         #[arg(long)]
         force: bool,
+    },
+    /// Adia chamados (como no Spark): somem das listas e do `watch` e voltam ao topo, marcados, na data
+    /// escolhida. É um controle só seu (o SUAP não tem; fica nesta máquina e é sincronizado cifrado).
+    /// Veja os adiados com `list --adiados`.
+    Snooze(SnoozeArgs),
+    /// Cancela o adiamento: o chamado volta às listas agora (ou, se já tinha voltado, deixa de ser "novo").
+    Unsnooze {
+        /// Números dos chamados.
+        #[arg(required = true)]
+        ids: Vec<u64>,
     },
     /// Arquiva chamados: some das listas e do `watch` (o SUAP não tem esta situação; é um controle só seu,
     /// guardado nesta máquina e sincronizado cifrado). Veja os arquivados com `list --arquivados`.
@@ -456,6 +476,28 @@ fn names(table: &[(&'static str, &'static str)]) -> Vec<&'static str> {
 }
 
 #[derive(Debug, Args)]
+struct SnoozeArgs {
+    /// Números dos chamados.
+    #[arg(required = true)]
+    ids: Vec<u64>,
+    /// Volta daqui a esse tempo: 30m, 3h, 2d, 1w ou somados (1d12h).
+    #[arg(long)]
+    em: Option<String>,
+    /// Volta nesse momento (AAAA-MM-DD ou AAAA-MM-DD HH:MM, no fuso de --fuso; só a data vale 8h).
+    #[arg(long)]
+    ate: Option<String>,
+    /// Volta amanhã às 8h.
+    #[arg(long)]
+    amanha: bool,
+    /// Volta no próximo sábado às 9h.
+    #[arg(long)]
+    fim_de_semana: bool,
+    /// Volta na próxima segunda às 8h.
+    #[arg(long)]
+    semana: bool,
+}
+
+#[derive(Debug, Args)]
 struct ListArgs {
     /// Lista os "Meus chamados" ativos em vez da fila de suporte.
     #[arg(long)]
@@ -508,6 +550,9 @@ struct ListArgs {
     /// Mostra só os chamados arquivados (sem isto, os arquivados não aparecem).
     #[arg(long)]
     arquivados: bool,
+    /// Mostra só os chamados adiados que ainda não voltaram, do que volta antes ao que volta depois.
+    #[arg(long, conflicts_with = "arquivados")]
+    adiados: bool,
     /// Mostra no máximo este número de chamados.
     #[arg(long)]
     limite: Option<usize>,
@@ -724,6 +769,7 @@ fn changes_synced_data(command: &Option<Command>) -> bool {
     match command {
         Some(Command::Title { text, remove, .. }) => text.is_some() || *remove,
         Some(Command::Archive { .. } | Command::Unarchive { .. }) => true,
+        Some(Command::Snooze(_) | Command::Unsnooze { .. }) => true,
         Some(Command::Profile { command }) => matches!(
             command,
             ProfileCommand::Init(_) | ProfileCommand::Update(_) | ProfileCommand::Remove { .. }
@@ -802,8 +848,8 @@ fn dispatch(
         },
         Some(Command::SessionStatus) => session_status(paths, out),
         Some(Command::Login { username }) => login(paths, username, password, out),
-        Some(Command::List(args)) => list(paths, *args, style, out),
-        Some(Command::Show { id, json }) => show(paths, id, json, out),
+        Some(Command::List(args)) => list(paths, *args, &cli.fuso, style, out),
+        Some(Command::Show { id, json }) => show(paths, id, json, &cli.fuso, out),
         Some(Command::Watch(args)) => watch(paths, &args, out),
         Some(Command::Open(args)) => open(paths, args, input, out),
         Some(Command::Comment(args)) => send_message(paths, args, Message::Comment, input, out),
@@ -852,6 +898,8 @@ fn dispatch(
             sem_anexos,
             force,
         }) => export(paths, id, output, !sem_anexos, force, out),
+        Some(Command::Snooze(args)) => snooze(paths, &args, &cli.fuso, out),
+        Some(Command::Unsnooze { ids }) => unsnooze(paths, &ids, out),
         Some(Command::Archive { ids }) => archive(paths, &ids, true, out),
         Some(Command::Unarchive { ids }) => archive(paths, &ids, false, out),
         Some(Command::Status) => {
@@ -1154,9 +1202,11 @@ fn login(
 fn list(
     paths: &AppPaths,
     args: ListArgs,
+    fuso: &str,
     style: Style,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
+    let offset = parse_offset(fuso).map_err(app_error)?;
     let config = profile_config(paths)?;
     let queue = match (args.meus, args.a_fechar) {
         (true, _) => TicketQueue::Mine,
@@ -1189,12 +1239,22 @@ fn list(
         .map_err(explain)?;
     let titles = TitleStore::open(paths.titles_file())?;
     let archive = ArchiveStore::open(paths.archive_file())?;
-    let view = [ArchiveView::Hide, ArchiveView::Only][usize::from(args.arquivados)];
-    // The local titles and the archive never leave this machine, so these filters are applied here.
+    let snooze = SnoozeStore::open(paths.snooze_file())?;
+    let marks = Marks {
+        archive: &archive,
+        snooze: &snooze,
+        now: unix_now(),
+    };
+    let view = match (args.arquivados, args.adiados) {
+        (true, _) => ListView::Archived,
+        (false, true) => ListView::Snoozed,
+        (false, false) => ListView::Normal,
+    };
+    // The local titles, the archive and the snoozes never leave this machine, so these filters are applied here.
     let tickets = narrow(
         tickets,
         &titles,
-        &archive,
+        &marks,
         view,
         args.titulo.as_deref(),
         args.limite,
@@ -1218,7 +1278,21 @@ fn list(
         .iter()
         .map(|ticket| {
             let status = ticket.status.as_deref();
-            let status_cell = or_dash(status, status.map_or("90", render::status_color));
+            // "↩" marks a ticket that came back from a snooze; in the snoozed view, when it comes back.
+            let note = match (view, snooze.until(&ticket.id)) {
+                (ListView::Snoozed, Some(until)) => {
+                    format!(" (volta {})", format_local(until, offset))
+                }
+                _ if marks.returned(&ticket.id) => " ↩".to_owned(),
+                _ => String::new(),
+            };
+            let status_cell = match (status, note.is_empty()) {
+                (_, true) => or_dash(status, status.map_or("90", render::status_color)),
+                (Some(text), false) => {
+                    Cell::colored(&format!("{text}{note}"), render::status_color(text))
+                }
+                (None, false) => Cell::colored(note.trim(), "90"),
+            };
             vec![
                 Cell::colored(&format!("#{}", ticket.id), "36").linked(&ticket.details_url),
                 status_cell,
@@ -1236,7 +1310,14 @@ fn list(
     Ok(())
 }
 
-fn show(paths: &AppPaths, id: u64, json: bool, out: &mut dyn Write) -> Result<(), Box<dyn Error>> {
+fn show(
+    paths: &AppPaths,
+    id: u64,
+    json: bool,
+    fuso: &str,
+    out: &mut dyn Write,
+) -> Result<(), Box<dyn Error>> {
+    let offset = parse_offset(fuso).map_err(app_error)?;
     let config = profile_config(paths)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -1248,6 +1329,24 @@ fn show(paths: &AppPaths, id: u64, json: bool, out: &mut dyn Write) -> Result<()
         .map_err(explain)?;
     let titles = TitleStore::open(paths.titles_file())?;
     let local_title = titles.get(&id.to_string());
+    // Seeing a ticket that came back from a snooze marks it as seen (cleared, and synced like any change).
+    let (now, mut snoozes) = (unix_now(), SnoozeStore::open(paths.snooze_file())?);
+    let snooze_note = match snoozes.until(&details.id) {
+        Some(until) if until > now => Some(format!(
+            "Adiado até {} ({})",
+            format_local(until, offset),
+            format_offset(offset)
+        )),
+        Some(until) => {
+            snoozes.set(&details.id, None, now)?;
+            snoozes.save()?;
+            Some(format!(
+                "Voltou do adiamento (era para {})",
+                format_local(until, offset)
+            ))
+        }
+        None => None,
+    };
     if json {
         let details = render::details_json(&details, local_title);
         writeln!(out, "{details}")?;
@@ -1256,6 +1355,9 @@ fn show(paths: &AppPaths, id: u64, json: bool, out: &mut dyn Write) -> Result<()
     print_details(&details, local_title, out)?;
     if ArchiveStore::open(paths.archive_file())?.is_archived(&id.to_string()) {
         writeln!(out, "Arquivado: sim (chamados unarchive {id})")?;
+    }
+    if let Some(note) = snooze_note {
+        writeln!(out, "{note}")?;
     }
     Ok(())
 }
@@ -1965,6 +2067,7 @@ fn watch(paths: &AppPaths, args: &WatchArgs, out: &mut dyn Write) -> Result<(), 
         writeln!(out, "{note}")?;
     }
     let mut round = 0;
+    let mut announced = std::collections::HashSet::new();
     loop {
         round += 1;
         let polled = runtime.block_on(poll(
@@ -1977,9 +2080,30 @@ fn watch(paths: &AppPaths, args: &WatchArgs, out: &mut dyn Write) -> Result<(), 
         match polled {
             Ok((snapshot, events)) => {
                 let now = unix_now() / 1_000;
-                // Read at each round: archiving while the watch runs takes effect on the next one.
+                // Read at each round: archiving or snoozing while the watch runs takes effect on the next one.
                 let archive = ArchiveStore::open(paths.archive_file())?;
-                let events = without_archived(events, &archive);
+                let snooze = SnoozeStore::open(paths.snooze_file())?;
+                let marks = Marks {
+                    archive: &archive,
+                    snooze: &snooze,
+                    now: unix_now(),
+                };
+                let events = without_hidden(events, &marks);
+                // A snoozed ticket that came back is announced once (the first round that sees it).
+                for (id, until) in snooze.due(marks.now) {
+                    if archive.is_archived(&id) || !announced.insert((id.clone(), until)) {
+                        continue;
+                    }
+                    let title = titles.get(&id);
+                    let line = match args.json {
+                        true => {
+                            let number = id.parse::<u64>().unwrap_or_default();
+                            serde_json::json!({"time": now, "event": "snooze_due", "id": number, "title": title}).to_string()
+                        }
+                        false => render::snooze_due_line(&id, now, title),
+                    };
+                    writeln!(out, "{line}")?;
+                }
                 for event in &events {
                     let title = titles.get(event.id());
                     let line = match args.json {
@@ -2068,6 +2192,75 @@ fn export(
     fs::write(&target, &zip)?;
     let (shown, size) = (target.display(), zip.len());
     writeln!(out, "Chamado #{id} exportado: {shown} ({size} bytes)")?;
+    Ok(())
+}
+
+/// When the ticket comes back: exactly one of `--em`, `--ate` or a shortcut.
+fn snooze_moment(args: &SnoozeArgs, offset: i32, now: u64) -> Result<u64, Box<dyn Error>> {
+    let shortcuts = [
+        (args.amanha, When::Tomorrow),
+        (args.fim_de_semana, When::Weekend),
+        (args.semana, When::NextWeek),
+    ];
+    let picked: Vec<When> = shortcuts
+        .iter()
+        .filter(|(on, _)| *on)
+        .map(|(_, when)| *when)
+        .collect();
+    let given = usize::from(args.em.is_some()) + usize::from(args.ate.is_some()) + picked.len();
+    if given != 1 {
+        return Err("diga quando o chamado volta, com uma só destas opções: --em, --ate, --amanha, --fim-de-semana ou --semana".into());
+    }
+    let moment = if let Some(duration) = &args.em {
+        now + parse_duration(duration).map_err(app_error)?
+    } else if let Some(date) = &args.ate {
+        parse_local(date, offset).map_err(app_error)?
+    } else {
+        at(now, offset, picked[0])
+    };
+    match moment > now {
+        true => Ok(moment),
+        false => Err("esse momento já passou: escolha um no futuro".into()),
+    }
+}
+
+fn snooze(
+    paths: &AppPaths,
+    args: &SnoozeArgs,
+    fuso: &str,
+    out: &mut dyn Write,
+) -> Result<(), Box<dyn Error>> {
+    let offset = parse_offset(fuso).map_err(app_error)?;
+    let now = unix_now();
+    let until = snooze_moment(args, offset, now)?;
+    let mut store = SnoozeStore::open(paths.snooze_file())?;
+    let when = format!(
+        "{} ({})",
+        format_local(until, offset),
+        format_offset(offset)
+    );
+    for id in &args.ids {
+        let text = match store.set(&id.to_string(), Some(until), now)? {
+            true => format!("adiado até {when}"),
+            false => format!("já estava adiado até {when}"),
+        };
+        writeln!(out, "Chamado #{id} {text}.")?;
+    }
+    store.save()?;
+    Ok(())
+}
+
+fn unsnooze(paths: &AppPaths, ids: &[u64], out: &mut dyn Write) -> Result<(), Box<dyn Error>> {
+    let mut store = SnoozeStore::open(paths.snooze_file())?;
+    let now = unix_now();
+    for id in ids {
+        let text = match store.set(&id.to_string(), None, now)? {
+            true => "voltou: adiamento cancelado",
+            false => "não estava adiado",
+        };
+        writeln!(out, "Chamado #{id} {text}.")?;
+    }
+    store.save()?;
     Ok(())
 }
 
@@ -3046,6 +3239,217 @@ mod tests {
         assert_eq!(code, 1);
     }
 
+    /// Makes the snooze of `id` come due long ago, as time passing (or another device's sync) would.
+    fn come_due(paths: &AppPaths, id: &str) {
+        let mut store = SnoozeStore::open(paths.snooze_file()).unwrap();
+        store.set(id, Some(1), 1).unwrap();
+        store.save().unwrap();
+    }
+
+    #[test]
+    fn snoozed_tickets_leave_the_lists_and_come_back_on_top_until_they_are_seen() {
+        let (_dir, paths) = paths();
+        let (runtime, server) = mock_server(true);
+        run_args(&["profile", "init", "--base-url", &server.uri()], &paths);
+        let listing = r#"<div class="general-box"><span class="status">Em atendimento</span>
+            <h4><a href="/centralservicos/chamado/7/">REQ #7 <strong>Assunto</strong></a></h4></div>
+            <div class="general-box"><h4><a href="/centralservicos/chamado/8/">REQ #8</a></h4></div>"#;
+        mount_listing(
+            &runtime,
+            &server,
+            "/centralservicos/listar_chamados_suporte/",
+            ResponseTemplate::new(200).set_body_string(listing),
+        );
+        let page =
+            r#"<main id="content"><div class="title-container"><h2>Chamado 7</h2></div></main>"#;
+        mount_listing(
+            &runtime,
+            &server,
+            "/centralservicos/chamado/7/",
+            ResponseTemplate::new(200).set_body_string(page),
+        );
+        let utc = |args: &[&str]| {
+            let mut all = vec!["--fuso", "+00:00"];
+            all.extend(args);
+            run_args(&all, &paths)
+        };
+
+        let (code, out, err) = utc(&["snooze", "7", "--ate", "2099-01-01 08:00"]);
+        assert_eq!((code, err.as_str()), (0, ""));
+        assert_eq!(out, "Chamado #7 adiado até 01/01/2099 08:00 (UTC+00:00).\n");
+        let (_, out, _) = utc(&["snooze", "7", "--ate", "2099-01-01 08:00"]);
+        assert_eq!(
+            out,
+            "Chamado #7 já estava adiado até 01/01/2099 08:00 (UTC+00:00).\n"
+        );
+        // Waiting: out of the usual list, in the snoozed one (with when it comes back), shown by `show`.
+        let (_, out, _) = utc(&["list"]);
+        assert_eq!(out, "#8\t-\t-\t-\n");
+        let (_, out, _) = utc(&["list", "--adiados"]);
+        assert_eq!(
+            out,
+            "#7\tEm atendimento (volta 01/01/2099 08:00)\t-\tAssunto\n"
+        );
+        let (_, out, _) = utc(&["show", "7"]);
+        assert!(
+            out.contains("Adiado até 01/01/2099 08:00 (UTC+00:00)"),
+            "{out}"
+        );
+        let (code, _, err) = utc(&["list", "--adiados", "--arquivados"]);
+        assert_ne!(code, 0);
+        assert!(err.contains("cannot be used"), "{err}");
+
+        // Time came: back on top, marked; a ticket without a status shows only the mark.
+        come_due(&paths, "7");
+        let (_, out, _) = utc(&["snooze", "8", "--em", "1d"]);
+        assert!(out.starts_with("Chamado #8 adiado até "), "{out}");
+        come_due(&paths, "8");
+        let (_, out, _) = utc(&["list"]);
+        assert_eq!(out, "#7\tEm atendimento ↩\t-\tAssunto\n#8\t↩\t-\t-\n");
+        let (_, out, _) = utc(&["list", "--adiados"]);
+        assert_eq!(out, "Nenhum chamado encontrado.\n");
+
+        // Seeing it (text or JSON) clears the mark: it is an ordinary ticket again.
+        let (_, out, _) = utc(&["show", "7"]);
+        assert!(
+            out.contains("Voltou do adiamento (era para 01/01/1970 00:00)"),
+            "{out}"
+        );
+        let (_, out, _) = utc(&["list"]);
+        assert_eq!(out, "#8\t↩\t-\t-\n#7\tEm atendimento\t-\tAssunto\n");
+        let (code, _, _) = utc(&["snooze", "7", "--ate", "2099-01-01"]);
+        assert_eq!(code, 0);
+        come_due(&paths, "7");
+        assert_eq!(utc(&["show", "7", "--json"]).0, 0);
+        let (_, out, _) = utc(&["list"]);
+        assert!(!out.contains('↩') || out.starts_with("#8\t↩"), "{out}");
+        assert!(out.contains("#7\tEm atendimento\t"), "{out}");
+
+        // Cancelling is idempotent.
+        let (_, out, _) = utc(&["unsnooze", "8", "9"]);
+        assert_eq!(
+            out,
+            "Chamado #8 voltou: adiamento cancelado.\nChamado #9 não estava adiado.\n"
+        );
+        let (_, out, _) = utc(&["list"]);
+        assert!(!out.contains('↩'), "{out}");
+
+        // The shortcuts all land in the future, in the zone asked for.
+        for shortcut in ["--amanha", "--fim-de-semana", "--semana"] {
+            let (code, out, _) = run_args(&["--fuso", "-03:00", "snooze", "7", shortcut], &paths);
+            assert_eq!(code, 0, "{shortcut}");
+            assert!(
+                out.contains("adiado até") && out.contains("(UTC-03:00)"),
+                "{out}"
+            );
+        }
+        let (_, out, _) = utc(&["list", "--adiados"]);
+        assert!(out.contains("#7\tEm atendimento (volta "), "{out}");
+
+        // Mistakes are explained, and nothing changes.
+        for (args, wanted) in [
+            (vec!["snooze", "7"], "diga quando o chamado volta"),
+            (
+                vec!["snooze", "7", "--em", "1h", "--amanha"],
+                "diga quando o chamado volta",
+            ),
+            (vec!["snooze", "7", "--em", "bobagem"], "duração inválida"),
+            (vec!["snooze", "7", "--ate", "ontem"], "data inválida"),
+            (vec!["snooze", "7", "--ate", "2001-01-01"], "já passou"),
+            (vec!["snooze", "abc", "--em", "1h"], "invalid value"),
+        ] {
+            let (code, _, err) = utc(&args);
+            assert_ne!(code, 0, "{args:?}");
+            assert!(err.contains(wanted), "{args:?}: {err}");
+        }
+        for args in [
+            vec!["list"],
+            vec!["show", "7"],
+            vec!["snooze", "7", "--em", "1h"],
+        ] {
+            let mut all = vec!["--fuso", "xyz"];
+            all.extend(args);
+            let (code, _, err) = run_args(&all, &paths);
+            assert_eq!(code, 1);
+            assert!(err.contains("fuso inválido"), "{err}");
+        }
+        std::fs::write(paths.snooze_file(), "quebrado").unwrap();
+        for args in [
+            vec!["list"],
+            vec!["snooze", "7", "--em", "1h"],
+            vec!["unsnooze", "7"],
+        ] {
+            let (code, _, err) = utc(&args);
+            assert_eq!(code, 1, "{args:?}");
+            assert!(err.contains("snooze file"), "{err}");
+        }
+    }
+
+    #[test]
+    fn watch_skips_snoozed_tickets_and_announces_the_ones_that_came_back() {
+        let (_dir, paths) = paths();
+        let (runtime, server) = mock_server(true);
+        run_args(&["profile", "init", "--base-url", &server.uri()], &paths);
+        let boxes = |status: &str| {
+            [7, 8]
+                .iter()
+                .map(|id| {
+                    format!(
+                        r#"<div class="general-box"><span class="status">{status}</span>
+                        <h4><a href="/centralservicos/chamado/{id}/">REQ #{id} <strong>Assunto {id}</strong></a></h4></div>"#
+                    )
+                })
+                .collect::<String>()
+        };
+        let serve = |status: &str| {
+            runtime.block_on(server.reset());
+            mount_text(
+                &runtime,
+                &server,
+                "GET",
+                "/centralservicos/meus_chamados/",
+                ResponseTemplate::new(200).set_body_string(boxes(status)),
+            );
+        };
+        serve("Aberto");
+        let (code, _, _) = run_args(&["watch", "--rodadas", "1"], &paths);
+        assert_eq!(code, 0);
+
+        // #7 is snoozed (waiting): its change is not announced; #8 changes and is.
+        run_args(
+            &["--fuso", "+00:00", "snooze", "7", "--ate", "2099-01-01"],
+            &paths,
+        );
+        run_args(&["title", "8", "Oito"], &paths);
+        serve("Resolvido");
+        let (_, out, _) = run_args(&["watch", "--rodadas", "1"], &paths);
+        assert!(out.contains("#8") && !out.contains("#7"), "{out}");
+        assert!(!out.contains("voltou do adiamento"), "{out}");
+
+        // When the time comes, the watch says so once (text, then JSON in a new run).
+        come_due(&paths, "7");
+        come_due(&paths, "8");
+        let (_, out, _) = run_args(&["watch", "--rodadas", "2", "--intervalo", "1"], &paths);
+        assert_eq!(out.matches("voltou do adiamento").count(), 2, "{out}");
+        assert!(out.contains("#8 (Oito)  voltou do adiamento"), "{out}");
+        let (_, out, _) = run_args(&["watch", "--rodadas", "1", "--json"], &paths);
+        let due: Vec<serde_json::Value> = out
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .filter(|line: &serde_json::Value| line["event"] == "snooze_due")
+            .collect();
+        assert_eq!(due.len(), 2, "{out}");
+        assert_eq!(
+            (due[0]["id"].as_u64(), due[1]["title"].as_str()),
+            (Some(7), Some("Oito"))
+        );
+
+        // An archived ticket that was snoozed is not announced either.
+        run_args(&["archive", "7"], &paths);
+        let (_, out, _) = run_args(&["watch", "--rodadas", "1"], &paths);
+        assert!(!out.contains("#7"), "{out}");
+    }
+
     #[test]
     fn archived_tickets_leave_the_lists_until_they_are_unarchived() {
         let (_dir, paths) = paths();
@@ -3729,8 +4133,10 @@ Chamado #8 não estava arquivado.
 
     /// Commands without free text. A new command must be added to one of the two lists, which forces
     /// a decision about RS-02 (and a test for it) whenever a command is created.
-    const NON_TEXT_COMMANDS: [&str; 20] = [
+    const NON_TEXT_COMMANDS: [&str; 22] = [
         "sync",
+        "snooze",
+        "unsnooze",
         "export",
         "archive",
         "unarchive",

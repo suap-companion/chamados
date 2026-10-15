@@ -10,8 +10,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use chamados_app::{pairing::Pairing, syncing::sync_round};
-use chamados_core::{ArchiveStore, TitleStore};
+use chamados_app::{
+    pairing::Pairing,
+    snoozing::{at, When},
+    syncing::sync_round,
+};
+use chamados_core::{ArchiveStore, SnoozeStore, TitleStore};
 use chamados_sync::{
     backend_from, key_exists, load_key, store_key, validate_settings, Key, KeySource,
     S3Credentials, SyncOptions, R2_BACKEND, S3_BACKEND,
@@ -50,6 +54,40 @@ pub struct SyncSetup {
     pub bucket: String,
     pub region: Option<String>,
     pub prefix: Option<String>,
+}
+
+/// Um chamado adiado: quando volta (ms desde 1970) e se a hora já chegou (voltou e ninguém viu ainda).
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct SnoozeItem {
+    pub id: String,
+    pub until: u64,
+    pub due: bool,
+}
+
+/// Os atalhos de data do "Adiar" (os do Spark).
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum SnoozePreset {
+    /// Daqui a 3 horas.
+    Later,
+    /// Amanhã às 8h.
+    Tomorrow,
+    /// No próximo sábado, às 9h.
+    Weekend,
+    /// Na próxima segunda, às 8h.
+    NextWeek,
+}
+
+/// O momento (ms desde 1970) de um atalho a partir de agora, no fuso `offset_minutes` (minutos a
+/// leste de UTC; o app passa o do aparelho).
+#[uniffi::export]
+pub fn snooze_at(preset: SnoozePreset, offset_minutes: i32) -> u64 {
+    let when = match preset {
+        SnoozePreset::Later => When::Later,
+        SnoozePreset::Tomorrow => When::Tomorrow,
+        SnoozePreset::Weekend => When::Weekend,
+        SnoozePreset::NextWeek => When::NextWeek,
+    };
+    at(unix_now(), offset_minutes, when)
 }
 
 /// O resultado de uma rodada de sincronização.
@@ -158,6 +196,45 @@ impl Chamados {
     pub fn set_archived(&self, id: String, archived: bool) -> Result<bool, ChamadosError> {
         let mut store = ArchiveStore::open(self.paths.archive_file()).map_err(failed)?;
         let changed = store.set(&id, archived, unix_now()).map_err(failed)?;
+        store.save().map_err(failed)?;
+        Ok(changed)
+    }
+
+    /// Os chamados adiados neste aparelho (e nos sincronizados): os que ainda esperam e os que já
+    /// voltaram sem ninguém ver, do que volta antes ao que volta depois.
+    pub fn snoozed(&self) -> Result<Vec<SnoozeItem>, ChamadosError> {
+        let store = SnoozeStore::open(self.paths.snooze_file()).map_err(failed)?;
+        let now = unix_now();
+        let waiting = store
+            .pending(now)
+            .into_iter()
+            .map(|(id, until)| (id, until, false));
+        let due = store
+            .due(now)
+            .into_iter()
+            .map(|(id, until)| (id, until, true));
+        Ok(due
+            .chain(waiting)
+            .map(|(id, until, due)| SnoozeItem { id, until, due })
+            .collect())
+    }
+
+    /// Adia o chamado até `until` (ms desde 1970, no futuro). Nada é enviado ao SUAP.
+    pub fn snooze(&self, id: String, until: u64) -> Result<(), ChamadosError> {
+        let now = unix_now();
+        if until <= now {
+            return Err(failed("esse momento já passou: escolha um no futuro"));
+        }
+        let mut store = SnoozeStore::open(self.paths.snooze_file()).map_err(failed)?;
+        store.set(&id, Some(until), now).map_err(failed)?;
+        store.save().map_err(failed)
+    }
+
+    /// Cancela o adiamento (o chamado volta já) ou, se ele já tinha voltado, tira a marca de "novo".
+    /// Diz se havia algo a tirar.
+    pub fn unsnooze(&self, id: String) -> Result<bool, ChamadosError> {
+        let mut store = SnoozeStore::open(self.paths.snooze_file()).map_err(failed)?;
+        let changed = store.set(&id, None, unix_now()).map_err(failed)?;
         store.save().map_err(failed)?;
         Ok(changed)
     }
@@ -329,6 +406,47 @@ mod tests {
         assert!(chamados.set_archived("x".to_owned(), true).is_err());
         assert!(chamados.set_archived("5".to_owned(), false).unwrap());
         assert!(chamados.archived_ids().unwrap().is_empty());
+        // The shortcuts land in the future, in the zone the device asks for.
+        let now = unix_now();
+        assert!((snooze_at(SnoozePreset::Later, -180) - now).abs_diff(3 * 3_600_000) < 5_000);
+        for preset in [
+            SnoozePreset::Tomorrow,
+            SnoozePreset::Weekend,
+            SnoozePreset::NextWeek,
+        ] {
+            let moment = snooze_at(preset, -180);
+            assert!(moment > now && moment - now <= 8 * 86_400_000, "{preset:?}");
+            assert_ne!(moment, snooze_at(preset, 0), "{preset:?}");
+        }
+
+        // Snoozing: kept until the time, listed (waiting first or due first), changed and cleared.
+        assert!(chamados.snoozed().unwrap().is_empty());
+        let (soon, later) = (unix_now() + 3_600_000, unix_now() + 7_200_000);
+        chamados.snooze("5".to_owned(), later).unwrap();
+        chamados.snooze("6".to_owned(), soon).unwrap();
+        let items = chamados.snoozed().unwrap();
+        let waiting: Vec<(&str, bool)> = items.iter().map(|i| (i.id.as_str(), i.due)).collect();
+        assert_eq!(waiting, [("6", false), ("5", false)]);
+        assert_eq!(items[0].until, soon);
+        assert!(chamados.snooze("7".to_owned(), unix_now() - 1).is_err());
+        assert!(chamados.snooze("x".to_owned(), later).is_err());
+        // A snooze that came due (written straight, as another device's sync would) is listed first.
+        let mut store = SnoozeStore::open(chamados.paths.snooze_file()).unwrap();
+        store.set("8", Some(1), 1).unwrap();
+        store.save().unwrap();
+        let items = chamados.snoozed().unwrap();
+        let order: Vec<(&str, bool)> = items.iter().map(|i| (i.id.as_str(), i.due)).collect();
+        assert_eq!(order, [("8", true), ("6", false), ("5", false)]);
+        assert!(chamados.unsnooze("8".to_owned()).unwrap());
+        assert!(!chamados.unsnooze("8".to_owned()).unwrap());
+        assert!(chamados.unsnooze("x".to_owned()).is_err());
+        assert!(chamados.unsnooze("5".to_owned()).unwrap());
+        std::fs::write(chamados.paths.snooze_file(), "{").unwrap();
+        assert!(chamados.snoozed().is_err());
+        assert!(chamados.snooze("5".to_owned(), later).is_err());
+        assert!(chamados.unsnooze("5".to_owned()).is_err());
+        std::fs::remove_file(chamados.paths.snooze_file()).unwrap();
+
         std::fs::write(chamados.paths.archive_file(), "{").unwrap();
         assert!(chamados.archived_ids().is_err());
         assert!(chamados.set_archived("5".to_owned(), true).is_err());

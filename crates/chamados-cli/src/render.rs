@@ -296,6 +296,12 @@ pub fn utc_timestamp(seconds: u64) -> String {
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
+/// The line `chamados watch` prints when a snoozed ticket comes back.
+pub fn snooze_due_line(id: &str, time: u64, local_title: Option<&str>) -> String {
+    let title = local_title.map_or_else(String::new, |title| format!(" ({title})"));
+    format!("{}  #{id}{title}  voltou do adiamento", utc_timestamp(time))
+}
+
 /// The line `chamados watch` prints for an event; a text with several lines continues indented.
 pub fn watch_line(event: &WatchEvent, time: u64, local_title: Option<&str>) -> String {
     let dash = |value: &Option<String>| value.clone().unwrap_or_else(|| "-".to_owned());

@@ -16,6 +16,7 @@ pub mod listing;
 pub mod pairing;
 pub mod pdf;
 pub mod share;
+pub mod snoozing;
 pub mod syncing;
 pub mod watching;
 pub mod zip;

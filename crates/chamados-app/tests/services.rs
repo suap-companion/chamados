@@ -3,14 +3,14 @@
 use chamados_app::{
     batch::{send_messages, BatchReport},
     download::download_attachments,
-    listing::{narrow, without_archived, ArchiveView},
+    listing::{narrow, without_hidden, ListView, Marks},
     syncing::sync_round,
     watching::watch_once,
     AppError,
 };
 use chamados_core::{
-    watch::WatchEvent, ArchiveStore, Message, RemoteTicket, SuapTicketSource, TicketDetails,
-    TicketFilter, TicketQueue, TitleStore,
+    watch::WatchEvent, ArchiveStore, Message, RemoteTicket, SnoozeStore, SuapTicketSource,
+    TicketDetails, TicketFilter, TicketQueue, TitleStore,
 };
 use chamados_sync::{backend_from, Key, SyncOptions};
 use suap_core::{AppPaths, SuapClient, SuapConfig, SyncSettings};
@@ -205,35 +205,84 @@ fn narrowing_by_local_title_and_limit() {
     let ids =
         |tickets: Vec<RemoteTicket>| -> Vec<String> { tickets.into_iter().map(|t| t.id).collect() };
     let mut archive = ArchiveStore::open(directory.path().join("archive.json")).unwrap();
-    let narrowed = |archive: &ArchiveStore, view, needle, limit| {
-        ids(narrow(all(), &titles, archive, view, needle, limit))
+    let mut snooze = SnoozeStore::open(directory.path().join("snooze.json")).unwrap();
+    let now = 1_000;
+    let narrowed = |archive: &ArchiveStore, snooze: &SnoozeStore, view, needle, limit| {
+        let marks = Marks {
+            archive,
+            snooze,
+            now,
+        };
+        ids(narrow(all(), &titles, &marks, view, needle, limit))
     };
-    let hide = ArchiveView::Hide;
-    assert_eq!(narrowed(&archive, hide, None, None), ["1", "2", "3"]);
-    assert_eq!(narrowed(&archive, hide, Some("MOODLE"), None), ["1"]);
+    let normal = ListView::Normal;
     assert_eq!(
-        narrowed(&archive, hide, Some("nada"), None),
+        narrowed(&archive, &snooze, normal, None, None),
+        ["1", "2", "3"]
+    );
+    assert_eq!(
+        narrowed(&archive, &snooze, normal, Some("MOODLE"), None),
+        ["1"]
+    );
+    assert_eq!(
+        narrowed(&archive, &snooze, normal, Some("nada"), None),
         Vec::<String>::new()
     );
-    assert_eq!(narrowed(&archive, hide, None, Some(2)), ["1", "2"]);
+    assert_eq!(
+        narrowed(&archive, &snooze, normal, None, Some(2)),
+        ["1", "2"]
+    );
 
     // Archived tickets leave the usual lists and are the only ones in the archive view.
     archive.set("2", true, 1).unwrap();
-    assert_eq!(narrowed(&archive, hide, None, None), ["1", "3"]);
-    assert_eq!(narrowed(&archive, ArchiveView::Only, None, None), ["2"]);
-    assert_eq!(
-        narrowed(&archive, ArchiveView::Only, Some("rede"), None),
-        ["2"]
-    );
-    assert!(narrowed(&archive, ArchiveView::Only, Some("moodle"), None).is_empty());
+    assert_eq!(narrowed(&archive, &snooze, normal, None, None), ["1", "3"]);
+    let only = ListView::Archived;
+    assert_eq!(narrowed(&archive, &snooze, only, None, None), ["2"]);
+    assert_eq!(narrowed(&archive, &snooze, only, Some("rede"), None), ["2"]);
+    assert!(narrowed(&archive, &snooze, only, Some("moodle"), None).is_empty());
 
-    // Their watch events are not announced.
+    // A snoozed ticket is out of the usual lists until its time; then it comes back on top, marked.
+    snooze.set("1", Some(5_000), 1).unwrap();
+    snooze.set("3", Some(2_000), 1).unwrap();
+    assert_eq!(
+        narrowed(&archive, &snooze, normal, None, None),
+        Vec::<String>::new()
+    );
+    let waiting = ListView::Snoozed;
+    assert_eq!(narrowed(&archive, &snooze, waiting, None, None), ["3", "1"]);
+    snooze.set("2", Some(3_000), 1).unwrap();
+    // An archived ticket is not in the snoozed view either.
+    assert_eq!(narrowed(&archive, &snooze, waiting, None, None), ["3", "1"]);
+    let marks = |now| Marks {
+        archive: &archive,
+        snooze: &snooze,
+        now,
+    };
+    assert!(marks(1_500).hidden("1") && marks(1_500).hidden("2") && !marks(1_500).returned("1"));
+    let back = ids(narrow(all(), &titles, &marks(2_500), normal, None, None));
+    assert_eq!(back, ["3"]);
+    let later = ids(narrow(all(), &titles, &marks(9_000), normal, None, None));
+    assert_eq!(later, ["1", "3"]);
+    assert!(marks(9_000).returned("1") && !marks(9_000).returned("2"));
+    assert!(!marks(9_000).hidden("1") && marks(9_000).hidden("2"));
+    // Their watch events are not announced while hidden.
     let event = |id: &str| WatchEvent::Left {
         id: id.to_owned(),
         status: None,
     };
-    let kept = without_archived(vec![event("1"), event("2")], &archive);
-    assert_eq!(kept, [event("1")]);
+    let kept = without_hidden(vec![event("1"), event("2"), event("3")], &marks(2_500));
+    assert_eq!(kept, [event("3")]);
+
+    // Seeing the ticket clears the snooze: it is just a normal ticket again, no longer on top.
+    snooze.set("1", None, 2).unwrap();
+    let marks = Marks {
+        archive: &archive,
+        snooze: &snooze,
+        now: 9_000,
+    };
+    let again = ids(narrow(all(), &titles, &marks, normal, None, None));
+    assert_eq!(again, ["3", "1"]);
+    assert!(!marks.returned("1") && marks.returned("3"));
 }
 
 #[tokio::test]

@@ -22,6 +22,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
 import uniffi.chamados_mobile.Queue
+import uniffi.chamados_mobile.SnoozeItem
 import uniffi.chamados_mobile.WatchItem
 
 /** O que a pessoa escolheu para o acompanhamento em segundo plano (fica só no aparelho). */
@@ -39,6 +40,8 @@ object Watcher {
     private const val CHANNEL = "acompanhamento"
     private const val SUMMARY_ID = 1
     private const val EXPIRED_ID = 2
+    private const val SNOOZE_SUMMARY_ID = 3
+    private const val SNOOZES = "adiados"
     private const val MAX_SEPARATE = 5
 
     /** Intervalos oferecidos, em minutos; o Android não deixa menos de 15. */
@@ -146,6 +149,52 @@ object Watcher {
         }
     }
 
+    /** Um aviso por chamado que voltou do adiamento (acima de 5, um resumo). */
+    @Suppress("MissingPermission")
+    fun notifyDue(context: Context, items: List<Pair<SnoozeItem, String?>>) {
+        if (items.isEmpty() || !canNotify(context)) return
+        val manager = NotificationManagerCompat.from(context)
+        fun line(item: SnoozeItem, title: String?) = "#${item.id}${title?.let { " ($it)" }.orEmpty()}  voltou do adiamento"
+        if (items.size > MAX_SEPARATE) {
+            val style = NotificationCompat.InboxStyle().also { box -> items.take(8).forEach { box.addLine(line(it.first, it.second)) } }
+            val summary = base(context).setContentTitle("${items.size} chamados voltaram do adiamento")
+                .setContentText(line(items.first().first, items.first().second)).setStyle(style).build()
+            manager.notify(SNOOZE_SUMMARY_ID, summary)
+            return
+        }
+        items.forEach { (item, title) ->
+            val notification = base(context).setContentTitle("Chamado #${item.id} voltou")
+                .setContentText(line(item, title)).build()
+            manager.notify(("snooze:${item.id}").hashCode(), notification)
+        }
+    }
+
+    /** Avisa dos adiados que voltaram desde a última vez (cada um uma vez só); sem rede. */
+    fun notifyReturned(context: Context, core: uniffi.chamados_mobile.Chamados) {
+        val due = core.snoozed().filter { it.due }
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val known = prefs.getStringSet("snooze_notified", emptySet()).orEmpty()
+        val keys = due.associateBy { "${it.id}@${it.until}" }
+        val fresh = keys.filterKeys { it !in known }.values
+        if (fresh.isNotEmpty()) {
+            val titles = core.titles().associate { it.id to it.title }
+            notifyDue(context, fresh.map { it to titles[it.id] })
+        }
+        // Só guarda o que ainda está pendente de ser visto: quem foi visto sai e pode ser adiado de novo.
+        if (canNotify(context)) prefs.edit().putStringSet("snooze_notified", keys.keys).apply()
+    }
+
+    /** Liga (ou desliga) a verificação local, sem rede, de que algum adiado voltou. */
+    fun scheduleSnoozes(context: Context, any: Boolean) {
+        val work = WorkManager.getInstance(context)
+        if (!any) {
+            work.cancelUniqueWork(SNOOZES)
+            return
+        }
+        val request = PeriodicWorkRequestBuilder<SnoozeWorker>(15, TimeUnit.MINUTES).build()
+        work.enqueueUniquePeriodicWork(SNOOZES, ExistingPeriodicWorkPolicy.KEEP, request)
+    }
+
     /** Avisa (uma vez) que a sessão acabou e é preciso entrar de novo; `resetExpired` rearma o aviso. */
     @Suppress("MissingPermission")
     fun notifyExpired(context: Context) {
@@ -168,6 +217,7 @@ class WatchWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         val settings = Watcher.load(applicationContext)
         return try {
             val core = CoreAccess.open(applicationContext)
+            runCatching { Watcher.notifyReturned(applicationContext, core) }
             if (!core.isAuthenticated()) {
                 Watcher.notifyExpired(applicationContext)
                 return Result.success()
@@ -179,5 +229,13 @@ class WatchWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             // Sem rede ou SUAP fora do ar: tenta de novo na próxima rodada (sem log de conteúdo).
             Result.success()
         }
+    }
+}
+
+/** Avisa quando um chamado adiado volta: só olha o que está no aparelho, sem rede, a cada 15 minutos. */
+class SnoozeWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        runCatching { Watcher.notifyReturned(applicationContext, CoreAccess.open(applicationContext)) }
+        return Result.success()
     }
 }

@@ -1,9 +1,14 @@
 //! Acompanhamento em segundo plano: uma rodada do `watch`, com os eventos prontos para notificar.
 
-use chamados_app::{listing::without_archived, watching::watch_once};
-use chamados_core::{watch::WatchEvent, ArchiveStore, SuapTicketSource, TicketFilter, TitleStore};
+use chamados_app::{
+    listing::{without_hidden, Marks},
+    watching::watch_once,
+};
+use chamados_core::{
+    watch::WatchEvent, ArchiveStore, SnoozeStore, SuapTicketSource, TicketFilter, TitleStore,
+};
 
-use crate::{failed, Chamados, ChamadosError, Queue};
+use crate::{failed, sync::unix_now, Chamados, ChamadosError, Queue};
 
 /// Uma mudança que o app deve avisar. `kind`: `new`, `status`, `left` ou `message`.
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
@@ -76,7 +81,13 @@ impl Chamados {
         let events = watch_once(&source, &filter, &scope, messages, &state_file).await;
         let titles = TitleStore::open(self.paths.titles_file()).map_err(failed)?;
         let archive = ArchiveStore::open(self.paths.archive_file()).map_err(failed)?;
-        Ok(without_archived(events.map_err(failed)?, &archive)
+        let snooze = SnoozeStore::open(self.paths.snooze_file()).map_err(failed)?;
+        let marks = Marks {
+            archive: &archive,
+            snooze: &snooze,
+            now: unix_now(),
+        };
+        Ok(without_hidden(events.map_err(failed)?, &marks)
             .into_iter()
             .map(|event| {
                 let title = titles.get(event.id()).map(str::to_owned);
@@ -222,13 +233,27 @@ mod tests {
             .is_err());
         std::fs::remove_file(chamados.paths.archive_file()).unwrap();
 
+        // A snoozed ticket is not announced until its time; then its changes are announced again.
+        chamados
+            .snooze("9".to_owned(), unix_now() + 3_600_000)
+            .unwrap();
+        serve(&server, boxes(&[(7, "Resolvido"), (9, "Aberto")])).await;
+        let hidden = chamados.watch_once(Queue::Mine, false, false).await;
+        assert!(hidden.unwrap().is_empty());
+        std::fs::write(chamados.paths.snooze_file(), "{").unwrap();
+        assert!(chamados
+            .watch_once(Queue::Mine, false, false)
+            .await
+            .is_err());
+        std::fs::remove_file(chamados.paths.snooze_file()).unwrap();
+
         // A failed look (here: SUAP out) is an error the app can show, and keeps the last state.
         server.reset().await;
         assert!(chamados
             .watch_once(Queue::Mine, false, false)
             .await
             .is_err());
-        serve(&server, boxes(&[(7, "Resolvido"), (9, "Resolvido")])).await;
+        serve(&server, boxes(&[(7, "Resolvido"), (9, "Aberto")])).await;
         assert!(chamados
             .watch_once(Queue::Mine, false, false)
             .await

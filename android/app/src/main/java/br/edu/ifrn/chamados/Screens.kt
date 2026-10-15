@@ -12,6 +12,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -136,6 +138,7 @@ private fun Bar(title: String, onBack: (() -> Unit)? = null, actions: @Composabl
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TicketsScreen(model: MainViewModel) {
     val labels = listOf(Queue.MINE to "Meus", Queue.SUPPORT to "Suporte", Queue.TO_CLOSE to "A fechar")
@@ -149,17 +152,18 @@ fun TicketsScreen(model: MainViewModel) {
         },
     ) { padding ->
         Column(Modifier.padding(padding)) {
-            Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 labels.forEach { (queue, label) ->
                     FilterChip(selected = model.queue == queue, onClick = { model.chooseQueue(queue) }, label = { Text(label) })
                 }
-                FilterChip(selected = model.showArchived, onClick = model::toggleArchivedView, label = { Text("Arquivados") })
+                FilterChip(selected = model.mode == ListMode.Snoozed, onClick = { model.chooseMode(ListMode.Snoozed) }, label = { Text("Adiados") })
+                FilterChip(selected = model.mode == ListMode.Archived, onClick = { model.chooseMode(ListMode.Archived) }, label = { Text("Arquivados") })
             }
-            if (model.queue == Queue.SUPPORT || model.showArchived) {
+            if (model.queue == Queue.SUPPORT || model.mode != ListMode.Normal) {
                 OutlinedTextField(
                     value = model.searchText,
                     onValueChange = { model.searchText = it },
-                    label = { Text(if (model.showArchived) "Buscar no título local (Enter)" else "Buscar no texto (Enter)") },
+                    label = { Text(if (model.mode != ListMode.Normal) "Buscar no título local (Enter)" else "Buscar no texto (Enter)") },
                     singleLine = true,
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { model.refresh() }),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
@@ -169,12 +173,22 @@ fun TicketsScreen(model: MainViewModel) {
             when {
                 model.listLoading -> Centered { CircularProgressIndicator() }
                 model.listError != null -> Message(model.listError!!)
-                model.tickets.isEmpty() -> Message(if (model.showArchived) "Nenhum chamado arquivado nesta lista." else "Nenhum chamado nesta lista.")
+                model.tickets.isEmpty() -> Message(
+                    when (model.mode) {
+                        ListMode.Archived -> "Nenhum chamado arquivado nesta lista."
+                        ListMode.Snoozed -> "Nenhum chamado adiado nesta lista."
+                        ListMode.Normal -> "Nenhum chamado nesta lista."
+                    },
+                )
                 else -> LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(model.tickets, key = { it.id }) { ticket ->
                         Card(Modifier.fillMaxWidth().clickable { model.openDetail(ticket.id) }) {
                             Column(Modifier.padding(12.dp)) {
                                 Text("#${ticket.id}  ${ticket.status.orEmpty()}", style = MaterialTheme.typography.labelLarge)
+                                model.snoozes[ticket.id]?.let { snooze ->
+                                    val note = if (snooze.due) "↩ voltou do adiamento" else "⏰ volta ${formatMoment(snooze.until)}"
+                                    Text(note, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                }
                                 model.titles[ticket.id]?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
                                 Text(ticket.subject ?: "(sem assunto)", style = MaterialTheme.typography.bodyLarge)
                             }
@@ -274,6 +288,7 @@ private fun TitleSection(model: MainViewModel, id: String) {
         OutlinedButton(onClick = { model.setArchived(id, !isArchived) }) {
             Text(if (isArchived) "Desarquivar" else "Arquivar (só no app e na sincronização)")
         }
+        SnoozeSection(model, id)
         var asking by remember(id) { mutableStateOf(false) }
         OutlinedButton(onClick = { asking = true }, enabled = !model.exporting) {
             Text(if (model.exporting) "Gerando o ZIP…" else "Exportar como ZIP")
