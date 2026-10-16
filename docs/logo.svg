@@ -1,0 +1,99 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1200"
+  height="480"
+  viewBox="0 0 1200 480"
+  role="img"
+  aria-labelledby="title description"
+>
+  <title id="title">Chamados — CLI + Mobile</title>
+  <desc id="description">
+    Balão de conversa branco com sinal de terminal sobre um quadrado
+    verde-petróleo, acompanhado do nome chamados.
+  </desc>
+
+  <!-- Fundo: remova este elemento para obter fundo transparente. -->
+  <rect width="1200" height="480" fill="#F7FAF8" />
+
+  <!-- Símbolo -->
+  <g transform="translate(100 112)">
+    <rect
+      x="24"
+      y="24"
+      width="208"
+      height="208"
+      rx="58"
+      fill="#11786C"
+    />
+
+    <!-- Balão de conversa -->
+    <path
+      d="
+        M 76 73
+        H 177
+        Q 190 73 190 86
+        V 155
+        Q 190 168 177 168
+        H 119
+        L 81 194
+        V 168
+        H 76
+        Q 63 168 63 155
+        V 86
+        Q 63 73 76 73
+        Z
+      "
+      fill="#FFFFFF"
+    />
+
+    <!-- Sinal de terminal: > -->
+    <path
+      d="M 87 100 L 108 120 L 87 140"
+      fill="none"
+      stroke="#11786C"
+      stroke-width="12"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+
+    <!-- Sinal de terminal: _ -->
+    <path
+      d="M 126 140 H 156"
+      fill="none"
+      stroke="#11786C"
+      stroke-width="12"
+      stroke-linecap="round"
+    />
+
+    <!-- Acento verde-menta -->
+    <circle
+      cx="207"
+      cy="49"
+      r="23"
+      fill="#46D89B"
+      stroke="#11786C"
+      stroke-width="8"
+    />
+  </g>
+
+  <!-- Nome -->
+  <text
+    x="400"
+    y="248"
+    font-family="Inter, DejaVu Sans, Arial, sans-serif"
+    font-size="94"
+    font-weight="700"
+    letter-spacing="-4"
+    fill="#18332F"
+  >chamados</text>
+
+  <!-- Assinatura -->
+  <text
+    x="405"
+    y="304"
+    font-family="Inter, DejaVu Sans, Arial, sans-serif"
+    font-size="27"
+    letter-spacing="5"
+    fill="#11786C"
+  >CLI + MOBILE</text>
+</svg>

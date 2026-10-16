@@ -10,6 +10,19 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -59,7 +72,7 @@ import uniffi.chamados_mobile.TicketView
 @Composable
 fun ChamadosApp(model: MainViewModel) {
     when (val screen = model.screen) {
-        Screen.Start -> Centered { CircularProgressIndicator() }
+        Screen.Start -> Splash()
         Screen.Login -> LoginScreen(model)
         Screen.Tickets -> TicketsScreen(model)
         is Screen.Detail -> DetailScreen(model, screen.id)
@@ -128,38 +141,33 @@ private fun isAfterLogin(base: String, url: String): Boolean {
     return page.authority == site.authority && !page.path.startsWith("/accounts/")
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/** A tela de carregamento: o logo do app (docs/logo.png) enquanto a sessão é conferida. */
+@Composable
+private fun Splash() {
+    Box(Modifier.fillMaxSize().background(Color(0xFFF8FAF9)), contentAlignment = Alignment.Center) {
+        Image(painterResource(R.drawable.splash_logo), contentDescription = "Chamados", modifier = Modifier.width(280.dp))
+    }
+}
+
+/**
+ * A tela inicial: as três abas (Meus chamados, Fila de suporte, A fechar), a situação dentro de cada uma
+ * (ativos, adiados, arquivados), o botão `+` para abrir um chamado e puxar a lista para atualizar.
+ */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun TicketsScreen(model: MainViewModel) {
-    val queues = listOf(Queue.MINE to "Meus", Queue.SUPPORT to "Suporte", Queue.TO_CLOSE to "A fechar")
-    val queueName = queues.first { it.first == model.queue }.second
-    val title = when (model.mode) {
-        ListMode.Normal -> when (model.queue) {
-            Queue.MINE -> "Meus chamados"
-            Queue.SUPPORT -> "Fila de suporte"
-            Queue.TO_CLOSE -> "A fechar"
-        }
-        ListMode.Snoozed -> "Adiados · $queueName"
-        ListMode.Archived -> "Arquivados · $queueName"
-    }
+    val tabs = listOf(Queue.MINE to "Meus", Queue.SUPPORT to "Suporte", Queue.TO_CLOSE to "A fechar")
+    val modes = listOf(ListMode.Normal to "Ativos", ListMode.Snoozed to "Adiados", ListMode.Archived to "Arquivados")
     val searchable = model.queue == Queue.SUPPORT || model.mode != ListMode.Normal
+    var newProfile by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
             GovBrHeader(
-                title = title,
-                subtitle = "Chamados do SUAP",
-                menu = queues.map { (queue, label) -> HeaderItem(label, selected = model.queue == queue) { model.chooseQueue(queue) } } +
-                    listOf(
-                        HeaderItem("Adiados", selected = model.mode == ListMode.Snoozed) { model.chooseMode(ListMode.Snoozed) },
-                        HeaderItem("Arquivados", selected = model.mode == ListMode.Archived) { model.chooseMode(ListMode.Archived) },
-                    ),
+                title = "Chamados",
+                subtitle = model.activeProfile.name,
                 quick = listOf(
                     HeaderItem("Configurações") { model.openSettings() },
                     HeaderItem("Sincronização entre dispositivos") { model.openSync() },
-                ),
-                functions = listOf(
-                    HeaderItem("Novo chamado") { model.openNewTicket() },
-                    HeaderItem("Atualizar") { model.refresh() },
                 ),
                 search = if (searchable) {
                     HeaderSearch(
@@ -175,32 +183,64 @@ fun TicketsScreen(model: MainViewModel) {
                 } else {
                     null
                 },
-                account = listOf(HeaderItem("Sair (esquecer a sessão)") { model.logout() }),
+                account = HeaderAccount(
+                    name = model.user?.name,
+                    enrollment = model.user?.enrollment,
+                    profile = model.activeProfile.name,
+                    photo = model.user?.photo,
+                    items = model.profiles.filter { it.name != model.activeProfile.name }
+                        .map { other -> HeaderItem("Trocar para ${other.name}") { model.switchProfile(other.name) } } +
+                        listOf(
+                            HeaderItem("Cadastrar novo perfil…") { newProfile = true },
+                            HeaderItem("Sair (esquecer a sessão)") { model.logout() },
+                        ),
+                ),
             )
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = model::openNewTicket) { Icon(Icons.Filled.Add, contentDescription = "Novo chamado") }
         },
     ) { padding ->
         Column(Modifier.padding(padding)) {
-            when {
-                model.listLoading -> Centered { CircularProgressIndicator() }
-                model.listError != null -> Message(model.listError!!)
-                model.tickets.isEmpty() -> Message(
-                    when (model.mode) {
-                        ListMode.Archived -> "Nenhum chamado arquivado nesta lista."
-                        ListMode.Snoozed -> "Nenhum chamado adiado nesta lista."
-                        ListMode.Normal -> "Nenhum chamado nesta lista."
-                    },
-                )
-                else -> LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(model.tickets, key = { it.id }) { ticket ->
-                        Card(Modifier.fillMaxWidth().clickable { model.openDetail(ticket.id) }) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text("#${ticket.id}  ${ticket.status.orEmpty()}", style = MaterialTheme.typography.labelLarge)
-                                model.snoozes[ticket.id]?.let { snooze ->
-                                    val note = if (snooze.due) "↩ voltou do adiamento" else "⏰ volta ${formatMoment(snooze.until)}"
-                                    Text(note, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            TabRow(selectedTabIndex = tabs.indexOfFirst { it.first == model.queue }.coerceAtLeast(0)) {
+                tabs.forEach { (queue, label) ->
+                    Tab(selected = model.queue == queue, onClick = { model.chooseQueue(queue) }, text = { Text(label, maxLines = 1) })
+                }
+            }
+            FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                modes.forEach { (mode, label) ->
+                    FilterChip(selected = model.mode == mode, onClick = { model.chooseMode(mode) }, label = { Text(label) })
+                }
+            }
+            PullToRefreshBox(isRefreshing = model.listLoading, onRefresh = model::refresh, modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 88.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    val error = model.listError
+                    when {
+                        error != null -> item { Message(error) }
+                        model.tickets.isEmpty() && !model.listLoading -> item {
+                            Message(
+                                when (model.mode) {
+                                    ListMode.Archived -> "Nenhum chamado arquivado nesta aba."
+                                    ListMode.Snoozed -> "Nenhum chamado adiado nesta aba."
+                                    ListMode.Normal -> "Nenhum chamado nesta aba. Puxe a lista para baixo para atualizar."
+                                },
+                            )
+                        }
+                        else -> items(model.tickets, key = { it.id }) { ticket ->
+                            Card(Modifier.fillMaxWidth().clickable { model.openDetail(ticket.id) }) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text("#${ticket.id}  ${ticket.status.orEmpty()}", style = MaterialTheme.typography.labelLarge)
+                                    model.snoozes[ticket.id]?.let { snooze ->
+                                        val note = if (snooze.due) "↩ voltou do adiamento" else "⏰ volta ${formatMoment(snooze.until)}"
+                                        Text(note, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                    model.titles[ticket.id]?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
+                                    Text(ticket.subject ?: "(sem assunto)", style = MaterialTheme.typography.bodyLarge)
                                 }
-                                model.titles[ticket.id]?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-                                Text(ticket.subject ?: "(sem assunto)", style = MaterialTheme.typography.bodyLarge)
                             }
                         }
                     }
@@ -208,6 +248,27 @@ fun TicketsScreen(model: MainViewModel) {
             }
         }
     }
+    if (newProfile) NewProfileDialog(model) { newProfile = false }
+}
+
+/** Cadastra um perfil (ambiente): o nome e o endereço do SUAP; passa a usá-lo e pede o login dele. */
+@Composable
+private fun NewProfileDialog(model: MainViewModel, onClose: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf("https://") }
+    AlertDialog(
+        onDismissRequest = { model.profileError = null; onClose() },
+        title = { Text("Cadastrar novo perfil") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome do perfil") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("Endereço do SUAP") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                model.profileError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = { TextButton(onClick = { if (model.addProfile(name, url)) onClose() }) { Text("Cadastrar") } },
+        dismissButton = { TextButton(onClick = { model.profileError = null; onClose() }) { Text("Cancelar") } },
+    )
 }
 
 @Composable

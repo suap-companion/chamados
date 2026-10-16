@@ -19,6 +19,7 @@ import uniffi.chamados_mobile.Queue
 import uniffi.chamados_mobile.ShareJob
 import uniffi.chamados_mobile.ShareKind
 import uniffi.chamados_mobile.SnoozeItem
+import uniffi.chamados_mobile.UserInfo
 import uniffi.chamados_mobile.SyncSetup
 import uniffi.chamados_mobile.SyncState
 import uniffi.chamados_mobile.TicketSummary
@@ -82,6 +83,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var baseUrl by mutableStateOf(CoreAccess.baseUrl(application))
         private set
+
+    // Perfis (ambientes) do app e a pessoa logada no perfil em uso
+    var profiles by mutableStateOf(Profiles.list(application))
+        private set
+    var activeProfile by mutableStateOf(Profiles.active(application))
+        private set
+    var user by mutableStateOf<UserInfo?>(null)
+        private set
+    var profileError by mutableStateOf<String?>(null)
 
     // Lista
     var queue by mutableStateOf(Queue.MINE)
@@ -147,12 +157,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         start()
     }
 
-    private fun dataDirFor(url: String): File = CoreAccess.dataDir(getApplication(), url)
-
     private fun open(): Chamados {
         core?.let { return it }
-        val dir = dataDirFor(baseUrl).apply { mkdirs() }
-        return Chamados(dir.absolutePath, baseUrl).also { core = it }
+        val dir = CoreAccess.dataDir(getApplication(), activeProfile).apply { mkdirs() }
+        return Chamados(dir.absolutePath, activeProfile.url).also { core = it }
     }
 
     /** O objeto da biblioteca para a tela de login importar os cookies. */
@@ -179,6 +187,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         screen = Screen.Tickets
         refresh()
         loadTitles()
+        loadUser()
+    }
+
+    /** A pessoa logada: mostra a que está guardada e atualiza com o que o SUAP mostra agora (nome, matrícula, foto). */
+    private fun loadUser() {
+        viewModelScope.launch {
+            runCatching { open().cachedUser() }.onSuccess { user = it }
+            runCatching { open().refreshUser() }.onSuccess { found -> if (found != null) user = found }
+        }
+    }
+
+    /** Troca o perfil em uso: o app volta a abrir a sessão e os dados do outro perfil. */
+    fun switchProfile(name: String) {
+        Profiles.activate(getApplication(), name)
+        reloadProfile()
+    }
+
+    /** Cadastra um perfil novo (nome e endereço do SUAP) e passa a usá-lo; devolve o erro, se houver. */
+    fun addProfile(name: String, url: String): Boolean {
+        val error = Profiles.add(getApplication(), name, url)
+        profileError = error
+        if (error == null) reloadProfile()
+        return error == null
+    }
+
+    private fun reloadProfile() {
+        activeProfile = Profiles.active(getApplication())
+        profiles = Profiles.list(getApplication())
+        baseUrl = activeProfile.url
+        core = null
+        user = null
+        tickets = emptyList()
+        titles = emptyMap()
+        archived = emptySet()
+        snoozes = emptyMap()
+        listError = null
+        mode = ListMode.Normal
+        searchText = ""
+        start()
     }
 
     /** Lê os títulos locais do disco (o app e a sincronização os mudam). */
@@ -282,9 +329,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refresh()
     }
 
-    /** Alterna entre as listas de sempre, os arquivados e os adiados (da fila escolhida). */
+    /** Escolhe a situação a mostrar na aba: ativos, adiados ou arquivados. */
     fun chooseMode(next: ListMode) {
-        mode = if (mode == next) ListMode.Normal else next
+        mode = next
         searchText = ""
         refresh()
     }
@@ -304,7 +351,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val marked = mode != ListMode.Normal
                 val query = ListQuery(
                     title = if (marked) text else null, view = view, text = if (marked) null else text,
-                    statuses = emptyList(), allStatuses = marked, since = null, until = null, page = null,
+                    statuses = emptyList(), allStatuses = marked && queue != Queue.TO_CLOSE, since = null, until = null, page = null,
                 )
                 tickets = open().list(queue, query)
                 listStale = false
@@ -531,6 +578,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun logout() {
         viewModelScope.launch {
             runCatching { open().logout() }
+            user = null
             tickets = emptyList()
             screen = Screen.Login
         }
@@ -610,15 +658,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun forgetSync() = syncTask("Sincronização desligada neste aparelho.") { it.syncForget(); shownKey = null; null }
 
     fun changeBaseUrl(url: String) {
-        val clean = url.trim().let { if (it.endsWith("/")) it else "$it/" }
+        val clean = Profiles.cleanUrl(url)
+        if (clean == null) {
+            listError = "Endereço inválido: use http:// ou https://"
+            return
+        }
         CoreAccess.saveBaseUrl(getApplication(), clean)
-        baseUrl = clean
-        core = null
-        listError = null
-        tickets = emptyList()
-        titles = emptyMap()
-        archived = emptySet()
-        snoozes = emptyMap()
-        start()
+        reloadProfile()
     }
 }

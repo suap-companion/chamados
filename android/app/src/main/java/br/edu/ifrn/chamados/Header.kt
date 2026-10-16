@@ -1,6 +1,7 @@
 package br.edu.ifrn.chamados
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -23,7 +25,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
@@ -43,12 +44,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
@@ -62,6 +66,18 @@ import androidx.compose.ui.unit.sp
 /** Um item dos menus do cabeçalho (acesso rápido, funcionalidades, listas, conta). */
 data class HeaderItem(val label: String, val selected: Boolean = false, val onClick: () -> Unit)
 
+/**
+ * A conta no cabeçalho: foto (arquivo guardado do SUAP), nome usual, matrícula e o perfil em uso, mais as
+ * ações do menu (trocar de perfil, novo perfil, sair).
+ */
+data class HeaderAccount(
+    val name: String?,
+    val enrollment: String?,
+    val profile: String,
+    val photo: String?,
+    val items: List<HeaderItem>,
+)
+
 /** A busca do cabeçalho: o texto, o que fazer ao mudar e ao confirmar (Enter) e o que fazer ao fechar. */
 data class HeaderSearch(
     val label: String,
@@ -73,20 +89,17 @@ data class HeaderSearch(
 
 /**
  * Cabeçalho no padrão do Design System do gov.br (componente "Header"): logo, título (uma linha, com
- * reticências), menu (☰), acesso rápido (⋮), funcionalidades (grade), busca e conta (Entrar/avatar).
- * Nas telas de detalhe, `onBack` troca o ☰ por uma seta de voltar.
+ * reticências), acesso rápido (⋮), busca e conta (Entrar/avatar). A grade de "funcionalidades" do DS serve
+ * para alternar entre aplicações e o app não tem isso. Nas telas de detalhe, `onBack` põe uma seta de voltar.
  */
 @Composable
 fun GovBrHeader(
     title: String,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
-    menu: List<HeaderItem> = emptyList(),
-    menuTitle: String = "LISTAS",
     quick: List<HeaderItem> = emptyList(),
-    functions: List<HeaderItem> = emptyList(),
     search: HeaderSearch? = null,
-    account: List<HeaderItem>? = null,
+    account: HeaderAccount? = null,
     signIn: (() -> Unit)? = null,
 ) {
     var searching by remember { mutableStateOf(false) }
@@ -111,15 +124,8 @@ fun GovBrHeader(
                         HeaderMenu(open == "quick", "ACESSO RÁPIDO", quick) { open = null }
                     }
                 }
-                if (functions.isNotEmpty()) {
-                    if (quick.isNotEmpty()) Divider()
-                    Box {
-                        HeaderIcon("Funcionalidades", { open = "functions" }) { GridIcon(MaterialTheme.colorScheme.primary) }
-                        HeaderMenu(open == "functions", "FUNCIONALIDADES", functions) { open = null }
-                    }
-                }
                 if (search != null) {
-                    if (quick.isNotEmpty() || functions.isNotEmpty()) Divider()
+                    if (quick.isNotEmpty()) Divider()
                     HeaderIcon("Buscar", { searching = true }) { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary) }
                 }
                 when {
@@ -129,23 +135,20 @@ fun GovBrHeader(
                                 .semantics { contentDescription = "Conta" }.padding(start = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Avatar()
+                            Avatar(account.photo, 36)
                             Icon(Icons.Filled.ArrowDropDown, null, tint = MaterialTheme.colorScheme.primary)
                         }
-                        HeaderMenu(open == "account", "CONTA", account) { open = null }
+                        AccountMenu(open == "account", account) { open = null }
                     }
                     signIn != null -> SignInButton(signIn)
                 }
             }
             // Linha de baixo: ☰ (ou voltar) e o título; o subtítulo só nas telas largas.
             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                when {
-                    onBack != null -> HeaderIcon("Voltar", onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary) }
-                    menu.isNotEmpty() -> Box {
-                        HeaderIcon("Menu", { open = "menu" }) { Icon(Icons.Filled.Menu, null, tint = MaterialTheme.colorScheme.primary) }
-                        HeaderMenu(open == "menu", menuTitle, menu) { open = null }
-                    }
-                    else -> Spacer(Modifier.width(8.dp))
+                if (onBack != null) {
+                    HeaderIcon("Voltar", onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary) }
+                } else {
+                    Spacer(Modifier.width(8.dp))
                 }
                 Column(Modifier.weight(1f).padding(start = 4.dp)) {
                     Text(title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -229,32 +232,63 @@ private fun SignInButton(onClick: () -> Unit) {
     }
 }
 
+/** O menu da conta: foto, nome usual, matrícula e perfil em uso, e as ações. */
 @Composable
-private fun Avatar() {
-    Box(Modifier.size(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-        Icon(Icons.Filled.Person, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-    }
-}
-
-/** O logo do app no cabeçalho (uma marca simples; o logo de verdade entra aqui). */
-@Composable
-private fun AppMark() {
-    Box(
-        Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primary)
-            .semantics { contentDescription = "Chamados" },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text("C", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-    }
-}
-
-/** O ícone de "funcionalidades" do DS: grade de 3 × 3 pontos. */
-@Composable
-private fun GridIcon(color: Color) {
-    Canvas(Modifier.size(22.dp)) {
-        val step = size.width / 3
-        for (row in 0..2) for (column in 0..2) {
-            drawRect(color, topLeft = Offset(column * step + step * 0.12f, row * step + step * 0.12f), size = androidx.compose.ui.geometry.Size(step * 0.76f, step * 0.76f))
+private fun AccountMenu(expanded: Boolean, account: HeaderAccount, onDismiss: () -> Unit) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Avatar(account.photo, 56)
+            Column {
+                Text(account.name ?: "Sem sessão", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                account.enrollment?.let { Text("Matrícula $it", style = MaterialTheme.typography.bodySmall) }
+                Text(
+                    "PERFIL: ${account.profile}".uppercase(),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        HorizontalDivider()
+        account.items.forEach { item ->
+            DropdownMenuItem(
+                text = { Text(item.label) },
+                onClick = {
+                    onDismiss()
+                    item.onClick()
+                },
+            )
         }
     }
+}
+
+/**
+ * A foto do SUAP em círculo, como o SUAP a mostra: a foto 3x4 com a largura do círculo, encostada no topo
+ * (um pouco acima) para o rosto ficar dentro; sem foto, o ícone de pessoa.
+ */
+@Composable
+private fun Avatar(photo: String?, size: Int) {
+    val bitmap = remember(photo) { photo?.let { path -> runCatching { BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull() } }
+    Box(Modifier.size(size.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = "Foto",
+                contentScale = ContentScale.Crop,
+                alignment = BiasAlignment(0f, -0.6f),
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(Icons.Filled.Person, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
+    }
+}
+
+/** O logo do app no cabeçalho (o ícone do app). */
+@Composable
+private fun AppMark() {
+    Image(
+        painter = painterResource(R.drawable.icone),
+        contentDescription = "Chamados",
+        modifier = Modifier.size(44.dp),
+    )
 }
