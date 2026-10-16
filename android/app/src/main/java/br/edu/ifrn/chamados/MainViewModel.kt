@@ -18,6 +18,7 @@ import uniffi.chamados_mobile.ListView
 import uniffi.chamados_mobile.Queue
 import uniffi.chamados_mobile.ShareJob
 import uniffi.chamados_mobile.ShareKind
+import uniffi.chamados_mobile.ListCounts
 import uniffi.chamados_mobile.SnoozeItem
 import uniffi.chamados_mobile.UserInfo
 import uniffi.chamados_mobile.SyncSetup
@@ -141,6 +142,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Os adiados (número do chamado → quando volta, e se já voltou sem ninguém ver). */
     var snoozes by mutableStateOf<Map<String, SnoozeItem>>(emptyMap())
         private set
+    /** Quantos chamados a aba tem em cada situação (os selos dos filtros); `null` até a primeira contagem. */
+    var counts by mutableStateOf<ListCounts?>(null)
+        private set
     private var listStale = false
 
     // Sincronização
@@ -221,6 +225,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         tickets = emptyList()
         titles = emptyMap()
         archived = emptySet()
+        counts = null
         snoozes = emptyMap()
         listError = null
         mode = ListMode.Normal
@@ -324,6 +329,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun chooseQueue(next: Queue) {
+        if (next != queue) counts = null
         queue = next
         if (next != Queue.SUPPORT && mode == ListMode.Normal) searchText = ""
         refresh()
@@ -355,6 +361,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 tickets = open().list(queue, query)
                 listStale = false
+                // Os selos não atrapalham a lista: se a contagem falhar, ficam como estavam.
+                val base = ListQuery(
+                    title = null, view = ListView.NORMAL, text = if (marked) null else text,
+                    statuses = emptyList(), allStatuses = false, since = null, until = null, page = null,
+                )
+                runCatching { open().listCounts(queue, base) }.onSuccess { counts = it }
             } catch (error: Throwable) {
                 if (!stillLoggedIn()) screen = Screen.Login else listError = error.readable()
             } finally {

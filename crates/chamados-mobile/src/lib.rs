@@ -23,8 +23,8 @@ use chamados_app::{
     share::SharedFile,
 };
 use chamados_core::{
-    parse_ticket_list, ArchiveStore, Attachment, Direction, Reclassification, SnoozeStore,
-    SuapTicketSource, TicketFilter, TicketQueue, TicketSource, TitleStore,
+    parse_ticket_list, ArchiveStore, Attachment, Direction, Reclassification, RemoteTicket,
+    SnoozeStore, SuapTicketSource, TicketFilter, TicketQueue, TicketSource, TitleStore,
 };
 use suap_core::{AppPaths, SuapClient, SuapConfig};
 
@@ -168,6 +168,14 @@ impl ListQuery {
             ..TicketFilter::default()
         }
     }
+}
+
+/// Quantos chamados há em cada situação de uma aba (para os selos das abas Ativos, Adiados e Arquivados).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct ListCounts {
+    pub active: u32,
+    pub snoozed: u32,
+    pub archived: u32,
 }
 
 /// Um campo (rótulo e valor) da página do chamado.
@@ -386,6 +394,46 @@ impl Chamados {
                 subject: ticket.subject,
             })
             .collect())
+    }
+
+    /// Quantos chamados a aba tem em cada situação (ativos, adiados e arquivados), com os mesmos filtros
+    /// de `list` (menos o título e a situação). Os adiados e arquivados contam em todas as situações do
+    /// SUAP, como a lista deles; a aba "A fechar" só pagina, então conta a mesma lista nas três.
+    pub async fn list_counts(
+        &self,
+        queue: Queue,
+        query: ListQuery,
+    ) -> Result<ListCounts, ChamadosError> {
+        let source = SuapTicketSource::new(&self.client, queue.core());
+        let usual = source
+            .list_filtered(&query.clone().core())
+            .await
+            .map_err(failed)?;
+        let all = match queue {
+            Queue::ToClose => usual.clone(),
+            _ => {
+                let mut every = query.core();
+                every.all_statuses = true;
+                source.list_filtered(&every).await.map_err(failed)?
+            }
+        };
+        let titles = TitleStore::open(self.paths.titles_file()).map_err(failed)?;
+        let archive = ArchiveStore::open(self.paths.archive_file()).map_err(failed)?;
+        let snooze = SnoozeStore::open(self.paths.snooze_file()).map_err(failed)?;
+        let marks = Marks {
+            archive: &archive,
+            snooze: &snooze,
+            now: unix_now(),
+        };
+        let count = |tickets: &[RemoteTicket], view| {
+            let kept = narrow(tickets.to_vec(), &titles, &marks, view, None, None);
+            u32::try_from(kept.len()).unwrap_or(u32::MAX)
+        };
+        Ok(ListCounts {
+            active: count(&usual, chamados_app::listing::ListView::Normal),
+            snoozed: count(&all, chamados_app::listing::ListView::Snoozed),
+            archived: count(&all, chamados_app::listing::ListView::Archived),
+        })
     }
 
     /// O chamado por inteiro.
@@ -810,6 +858,30 @@ mod tests {
                 .is_empty());
             assert!(chamados.set_archived("7".to_owned(), false).unwrap());
 
+            // The tab's counts: one active ticket, then one archived, then one snoozed.
+            let counts = |c: ListCounts| (c.active, c.snoozed, c.archived);
+            let now = chamados
+                .list_counts(Queue::Mine, ListQuery::default())
+                .await;
+            assert_eq!(counts(now.unwrap()), (1, 0, 0));
+            assert!(chamados.set_archived("7".to_owned(), true).unwrap());
+            let now = chamados
+                .list_counts(Queue::Mine, ListQuery::default())
+                .await;
+            assert_eq!(counts(now.unwrap()), (0, 0, 1));
+            // "A fechar" only pages: the one list serves the three counts.
+            page(
+                &server,
+                "GET",
+                "/centralservicos/listar_chamados_a_fechar/",
+                r#"<div class="general-box"><span class="status">Resolvido</span>
+                <h4><a href="/centralservicos/chamado/8/">REQ #8 <strong>Fechar</strong></a></h4></div>"#,
+            )
+            .await;
+            let to_close = chamados.list_counts(Queue::ToClose, ListQuery::default());
+            assert_eq!(counts(to_close.await.unwrap()), (1, 0, 0));
+            assert!(chamados.set_archived("7".to_owned(), false).unwrap());
+
             // A snoozed ticket is out of the usual list until it comes back, and has its own list.
             chamados
                 .snooze("7".to_owned(), unix_now() + 3_600_000)
@@ -820,10 +892,18 @@ mod tests {
             };
             let snoozed = chamados.list(Queue::Mine, waiting).await.unwrap();
             assert_eq!(snoozed[0].id, "7");
+            let now = chamados
+                .list_counts(Queue::Mine, ListQuery::default())
+                .await;
+            assert_eq!(counts(now.unwrap()), (0, 1, 0));
             let usual = chamados.list(Queue::Mine, ListQuery::default()).await;
             assert!(usual.unwrap().is_empty());
             std::fs::write(chamados.paths.snooze_file(), "{").unwrap();
             let damaged = chamados.list(Queue::Mine, ListQuery::default()).await;
+            assert!(damaged.is_err());
+            let damaged = chamados
+                .list_counts(Queue::Mine, ListQuery::default())
+                .await;
             assert!(damaged.is_err());
             std::fs::remove_file(chamados.paths.snooze_file()).unwrap();
 

@@ -37,6 +37,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -209,7 +210,23 @@ fun TicketsScreen(model: MainViewModel) {
             }
             FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 modes.forEach { (mode, label) ->
-                    FilterChip(selected = model.mode == mode, onClick = { model.chooseMode(mode) }, label = { Text(label) })
+                    val amount = model.counts?.let {
+                        when (mode) {
+                            ListMode.Normal -> it.active
+                            ListMode.Snoozed -> it.snoozed
+                            ListMode.Archived -> it.archived
+                        }
+                    }?.toInt() ?: 0
+                    FilterChip(
+                        selected = model.mode == mode,
+                        onClick = { model.chooseMode(mode) },
+                        label = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(label)
+                                if (amount > 0) Badge { Text(if (amount > 99) "99+" else amount.toString()) }
+                            }
+                        },
+                    )
                 }
             }
             PullToRefreshBox(isRefreshing = model.listLoading, onRefresh = model::refresh, modifier = Modifier.fillMaxSize()) {
