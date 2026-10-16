@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ícone adaptável: o ícone do app (docs/icone.png) em um fundo branco; a margem mantém o desenho dentro da zona segura. -->
+<!-- Ícone adaptável: o símbolo do app (docs/icone.svg) sobre o verde-petróleo, cheio, sem margem branca. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/launcher_background" />
-    <foreground>
-        <inset android:drawable="@drawable/icone" android:inset="14%" />
-    </foreground>
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
 </adaptive-icon>

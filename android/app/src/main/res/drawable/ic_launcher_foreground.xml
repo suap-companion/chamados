@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    O símbolo do ícone (docs/icone.svg: balão com o sinal de terminal e o ponto verde-menta) para o ícone
+    adaptável: fica no centro de 108 dp, dentro da zona segura (círculo de 66 dp), sobre o fundo verde
+    cheio de @color/launcher_background; assim qualquer máscara (círculo, quadrado, gota) fica boa.
+    As coordenadas são as do SVG (256 × 256); o grupo as reduz e as centraliza.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.34"
+        android:scaleY="0.34"
+        android:translateX="10.48"
+        android:translateY="10.48">
+        <!-- Balão de conversa -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M76,73 H177 Q190,73 190,86 V155 Q190,168 177,168 H119 L81,194 V168 H76 Q63,168 63,155 V86 Q63,73 76,73 Z" />
+        <!-- Sinal de terminal: > -->
+        <path
+            android:pathData="M87,100 L108,120 L87,140"
+            android:strokeColor="#11786C"
+            android:strokeWidth="12"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <!-- Sinal de terminal: _ -->
+        <path
+            android:pathData="M126,140 H156"
+            android:strokeColor="#11786C"
+            android:strokeWidth="12"
+            android:strokeLineCap="round" />
+        <!-- Ponto verde-menta (mais perto do balão que no SVG, para caber na máscara circular) -->
+        <path
+            android:fillColor="#46D89B"
+            android:pathData="M190,53 A17,17 0 1,1 190,87 A17,17 0 1,1 190,53 Z"
+            android:strokeColor="#11786C"
+            android:strokeWidth="7" />
+    </group>
+</vector>
