@@ -6,6 +6,7 @@
 
 uniffi::setup_scaffolding!();
 
+mod account;
 mod exporting;
 mod sync;
 mod watching;
@@ -356,7 +357,7 @@ impl Chamados {
     /// Esquece a sessão (apaga os cookies guardados).
     pub async fn logout(&self) -> Result<(), ChamadosError> {
         self.client.import_cookie_header("").await.map_err(failed)?;
-        Ok(())
+        self.forget_user()
     }
 
     /// Lê uma lista do SUAP.
