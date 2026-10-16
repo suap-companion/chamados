@@ -9,15 +9,15 @@ FILE="${1:-chamados-release.jks}"
 ALIAS="${2:-chamados}"
 [ ! -e "$FILE" ] || { echo "já existe $FILE: não vou sobrescrever"; exit 1; }
 keytool -genkeypair -v -keystore "$FILE" -alias "$ALIAS" -keyalg RSA -keysize 4096 -validity 10000 \
-  -dname "CN=Chamados, O=chamados-cli"
+  -dname "CN=Chamados, O=chamados"
 cat <<EOF
 
 Chave criada em $FILE (alias $ALIAS). Agora cadastre os segredos do repositório (cada comando pede o valor):
 
-  base64 -w0 "$FILE" | gh secret set ANDROID_KEYSTORE_B64 --repo suap-companion/chamados-cli
-  gh secret set ANDROID_KEYSTORE_PASSWORD --repo suap-companion/chamados-cli
-  gh secret set ANDROID_KEY_ALIAS --repo suap-companion/chamados-cli --body "$ALIAS"
-  gh secret set ANDROID_KEY_PASSWORD --repo suap-companion/chamados-cli
+  base64 -w0 "$FILE" | gh secret set ANDROID_KEYSTORE_B64 --repo suap-companion/chamados
+  gh secret set ANDROID_KEYSTORE_PASSWORD --repo suap-companion/chamados
+  gh secret set ANDROID_KEY_ALIAS --repo suap-companion/chamados --body "$ALIAS"
+  gh secret set ANDROID_KEY_PASSWORD --repo suap-companion/chamados
 
 Depois disso, cada release publicada anexa chamados-<tag>-android.apk.
 EOF

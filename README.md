@@ -1,18 +1,22 @@
-# chamados-cli
+# chamados
 
-Cliente local para acompanhar chamados do SUAP, inicialmente como uma CLI em Rust e futuramente com aplicativo Android.
+Cliente local para acompanhar e atender chamados do SUAP: uma **biblioteca** em Rust, um **CLI** e um **aplicativo Android**, no mesmo repositório (monorepo `suap-companion/chamados`; antes se chamava `chamados-cli`).
 
 > **Nota:** Este NÃO é um projeto oficial do IFRN, é um projeto pessoal. Construído sem qualquer apoio ou incentivo institucional.
 
 ## Arquitetura
 
-O projeto é um workspace Cargo com três crates:
+O projeto é um workspace Cargo (a biblioteca e o CLI) mais o aplicativo Android em `android/`:
 
 - `suap-core`: configuração, diretórios, autenticação, sessão, cookies e transporte compartilhados.
-- `chamados-core`: domínio de chamados, sincronização e recursos locais como títulos e adiamentos.
-- `chamados-cli`: interface de linha de comando.
+- `chamados-core`: domínio de chamados e recursos locais como títulos, arquivados e adiados.
+- `chamados-sync`: sincronização cifrada (perfis e marcas locais) entre dispositivos.
+- `chamados-app`: serviços de aplicação sem terminal, usados pelo CLI e pelo app.
+- `chamados-cli`: interface de linha de comando (o binário se chama `chamados`).
+- `chamados-mobile`: a fachada UniFFI que o aplicativo Android usa.
+- `android/`: o aplicativo Android (Kotlin e Compose); veja `docs/android.md`.
 
-A separação permite reutilizar o núcleo Rust no Android sem colocar regras de chamados dentro da camada de autenticação do SUAP.
+A separação permite reutilizar o núcleo Rust no CLI e no Android sem colocar regras de chamados dentro da camada de autenticação do SUAP.
 
 ## Configuração local
 
