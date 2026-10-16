@@ -51,6 +51,8 @@ pub struct TicketSummary {
     pub id: String,
     pub status: Option<String>,
     pub subject: Option<String>,
+    /// O caminho da foto de quem pediu no SUAP (para `ticket_photo`); `None` sem foto.
+    pub photo: Option<String>,
 }
 
 /// Versão do núcleo (prova de que a biblioteca carregou).
@@ -70,6 +72,7 @@ pub fn parse_listing(html: String, base_url: String) -> Result<Vec<TicketSummary
             id: ticket.id,
             status: ticket.status,
             subject: ticket.subject,
+            photo: ticket.photo,
         })
         .collect())
 }
@@ -392,6 +395,7 @@ impl Chamados {
                 id: ticket.id,
                 status: ticket.status,
                 subject: ticket.subject,
+                photo: ticket.photo,
             })
             .collect())
     }

@@ -53,6 +53,8 @@ pub struct RemoteTicket {
     pub subject: Option<String>,
     pub status: Option<String>,
     pub details_url: String,
+    /// O caminho da foto de quem pediu (a da lista; sem a foto padrão), no mesmo SUAP.
+    pub photo: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -685,6 +687,7 @@ fn parse_ticket(element: ElementRef<'_>, base_url: &Url) -> Option<RemoteTicket>
     let link = Selector::parse("h4 a").expect("static selector is valid");
     let subject = Selector::parse("h4 a strong").expect("static selector is valid");
     let status = Selector::parse(".status").expect("static selector is valid");
+    let image = Selector::parse("img").expect("static selector is valid");
 
     let href = element.select(&link).next()?.value().attr("href")?;
     let id = href.strip_prefix(TICKET_PATH_PREFIX)?.trim_end_matches('/');
@@ -693,6 +696,11 @@ fn parse_ticket(element: ElementRef<'_>, base_url: &Url) -> Option<RemoteTicket>
         subject: element.select(&subject).next().map(text_of),
         status: element.select(&status).next().map(text_of),
         details_url: base_url.join(href).ok()?.to_string(),
+        photo: element
+            .select(&image)
+            .next()
+            .and_then(|image| image.value().attr("src"))
+            .and_then(|source| profile::same_site_path(source, base_url)),
     })
 }
 
@@ -1023,11 +1031,11 @@ mod tests {
     };
 
     const LISTING: &str = r#"
-        <div class="general-box danger"><div class="primary-info">
+        <div class="general-box danger"><img src="/media/fotos/a.jpg"><div class="primary-info">
           <div class="status-info-container"><span class="status status-em-atendimento ">Em atendimento</span></div>
           <h4><a href="/centralservicos/chamado/559298/">REQ #559298 <strong>Atualização de versão do Moodle</strong></a></h4>
         </div></div>
-        <div class="general-box"><h4><a href="/centralservicos/chamado/1/">REQ #1</a></h4></div>
+        <div class="general-box"><img src="/static/comum/img/default.jpg"><h4><a href="/centralservicos/chamado/1/">REQ #1</a></h4></div>
         <div class="general-box"><p>sem link</p></div>
         <div class="general-box"><h4><a href="/outra/pagina/">REQ #2</a></h4></div>
         <div class="general-box"><h4><a>sem href</a></h4></div>
@@ -2156,6 +2164,7 @@ mod tests {
                 subject: Some("Atualização de versão do Moodle".to_owned()),
                 status: Some("Em atendimento".to_owned()),
                 details_url: "https://suap.example/centralservicos/chamado/559298/".to_owned(),
+                photo: Some("/media/fotos/a.jpg".to_owned()),
             }
         );
         assert_eq!(
@@ -2340,6 +2349,7 @@ mod tests {
             subject: Some("Assunto".to_owned()),
             status: None,
             details_url: "https://example.org/1".to_owned(),
+            photo: None,
         };
         assert_eq!(ticket.clone(), ticket);
         assert!(format!("{ticket:?}").contains("Assunto"));

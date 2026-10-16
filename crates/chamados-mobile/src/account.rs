@@ -64,6 +64,25 @@ impl Chamados {
         }))
     }
 
+    /// A foto de quem pediu um chamado (o caminho vem de `TicketSummary.photo`): baixa no SUAP uma vez e
+    /// guarda no aparelho; devolve o arquivo, ou `None` se não deu para baixar.
+    pub async fn ticket_photo(&self, path: String) -> Result<Option<String>, ChamadosError> {
+        let name: String = path
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        let folder = self.paths.data_dir().join("fotos");
+        let file = folder.join(name);
+        if !file.exists() {
+            let Ok((bytes, _)) = self.client.fetch_file(&path).await else {
+                return Ok(None);
+            };
+            fs::create_dir_all(&folder).map_err(failed)?;
+            fs::write(&file, bytes).map_err(failed)?;
+        }
+        Ok(Some(file.display().to_string()))
+    }
+
     /// Lê no SUAP o nome, o vínculo e a foto da pessoa logada e guarda no aparelho. `None` se a página
     /// não mostra a pessoa; falha se a sessão acabou ou o SUAP não responde (o que estava guardado fica).
     pub async fn refresh_user(&self) -> Result<Option<UserInfo>, ChamadosError> {
@@ -160,6 +179,34 @@ mod tests {
         chamados.logout().await.unwrap();
         assert_eq!(chamados.cached_user().unwrap(), None);
         chamados.logout().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_photo_of_a_requester_is_downloaded_once() {
+        let server = MockServer::start().await;
+        let (_dir, chamados) = app(&server);
+        // Not served yet: no photo, and nothing is kept.
+        assert_eq!(
+            chamados.ticket_photo("/m/x.jpg".to_owned()).await.unwrap(),
+            None
+        );
+        serve(&server, "/m/x.jpg", vec![1, 2, 3]).await;
+        let file = chamados
+            .ticket_photo("/m/x.jpg".to_owned())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), [1, 2, 3]);
+        // Kept: the second time does not need the SUAP.
+        server.reset().await;
+        let again = chamados.ticket_photo("/m/x.jpg".to_owned()).await.unwrap();
+        assert_eq!(again, Some(file));
+        // The folder cannot be made: an error.
+        let blocked = chamados.paths.data_dir().join("fotos");
+        std::fs::remove_dir_all(&blocked).unwrap();
+        std::fs::write(&blocked, "x").unwrap();
+        serve(&server, "/m/y.jpg", vec![4]).await;
+        assert!(chamados.ticket_photo("/m/y.jpg".to_owned()).await.is_err());
     }
 
     #[tokio::test]
