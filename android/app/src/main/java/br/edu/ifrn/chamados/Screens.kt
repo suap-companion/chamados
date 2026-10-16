@@ -230,35 +230,25 @@ fun TicketsScreen(model: MainViewModel) {
                 }
             }
             PullToRefreshBox(isRefreshing = model.listLoading, onRefresh = model::refresh, modifier = Modifier.fillMaxSize()) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 88.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
                     val error = model.listError
                     when {
-                        error != null -> item { Message(error) }
-                        model.tickets.isEmpty() && !model.listLoading -> item {
-                            Message(
+                        error != null -> item { ListState(error, isError = true, onRetry = model::refresh) }
+                        // Skeleton só na primeira carga; com itens, o puxar para atualizar basta.
+                        model.tickets.isEmpty() && model.listLoading -> item { TicketListSkeleton() }
+                        model.tickets.isEmpty() -> item {
+                            ListState(
                                 when (model.mode) {
                                     ListMode.Archived -> "Nenhum chamado arquivado nesta aba."
                                     ListMode.Snoozed -> "Nenhum chamado adiado nesta aba."
                                     ListMode.Normal -> "Nenhum chamado nesta aba. Puxe a lista para baixo para atualizar."
                                 },
+                                isError = false,
                             )
                         }
                         else -> items(model.tickets, key = { it.id }) { ticket ->
-                            Card(Modifier.fillMaxWidth().clickable { model.openDetail(ticket.id) }) {
-                                Column(Modifier.padding(12.dp)) {
-                                    Text("#${ticket.id}  ${ticket.status.orEmpty()}", style = MaterialTheme.typography.labelLarge)
-                                    model.snoozes[ticket.id]?.let { snooze ->
-                                        val note = if (snooze.due) "↩ voltou do adiamento" else "⏰ volta ${formatMoment(snooze.until)}"
-                                        Text(note, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                                    }
-                                    model.titles[ticket.id]?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-                                    Text(ticket.subject ?: "(sem assunto)", style = MaterialTheme.typography.bodyLarge)
-                                }
-                            }
+                            TicketItem(ticket, model.titles[ticket.id], model.snoozes[ticket.id]) { model.openDetail(ticket.id) }
+                            ListDivider()
                         }
                     }
                 }

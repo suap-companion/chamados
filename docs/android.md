@@ -194,3 +194,7 @@ O repositório passou de `suap-companion/chamados-cli` para **`suap-companion/ch
 ## Selos de quantidade (#117)
 
 Os filtros de cada aba (Ativos, Adiados, Arquivados) mostram um selo com quantos chamados há em cada situação (acima de 99, "99+"; sem selo quando é zero). A conta vem da fachada (`list_counts`): Ativos usa a lista de sempre da aba; Adiados e Arquivados contam em todas as situações do SUAP, como as listas deles (na aba "A fechar", que só pagina, a mesma lista serve às três). Os números se atualizam a cada atualização da lista, inclusive ao arquivar, adiar ou desfazer; se a contagem falhar, os selos ficam como estavam.
+
+## Listagem no padrão gov.br: Lista, Item e Loading (#119)
+
+A lista de chamados usa o padrão do Design System: itens (`br-item`) numa lista (`br-list`) com divisores finos, padding de 16 dp, alvo de toque de 48 dp, avatar redondo e um único alvo de leitor de tela por item ("chamado 5, Aberto, título…"); o estado "selecionado" já existe (para a seleção em lote, #122). Na primeira carga de uma aba, o **skeleton screen** (mesma forma dos itens, barras que pulsam, parado se o sistema reduz animações) substitui o círculo de progresso; com itens na tela, o puxar para atualizar basta. Vazio e erro têm mensagem curta, e o erro, a ação "Tentar de novo". Código em `TicketList.kt`. A foto do solicitante no avatar depende de a lista do SUAP trazê-la (hoje o avatar é o ícone de pessoa).
