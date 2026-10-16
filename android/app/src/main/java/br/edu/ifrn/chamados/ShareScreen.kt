@@ -39,7 +39,7 @@ import androidx.compose.ui.graphics.Color
 @Composable
 fun ShareScreen(model: ShareViewModel) {
     val activity = LocalContext.current as Activity
-    Scaffold(topBar = { TopAppBar(title = { Text("Enviar para o SUAP") }) }) { padding ->
+    Scaffold(topBar = { GovBrHeader("Enviar para o SUAP") }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             when (model.phase) {
                 SharePhase.Loading, SharePhase.Sending -> Column(

@@ -86,7 +86,7 @@ fun LoginScreen(model: MainViewModel) {
     val base = model.baseUrl
     var message by remember { mutableStateOf<String?>(null) }
     var entering by remember { mutableStateOf(false) }
-    Scaffold(topBar = { Bar("Entrar no SUAP", actions = { TextButton(onClick = model::openSettings) { Text("Endereço") } }) }) { padding ->
+    Scaffold(topBar = { GovBrHeader("Entrar no SUAP", quick = listOf(HeaderItem("Endereço do SUAP") { model.openSettings() })) }) { padding ->
         Column(Modifier.padding(padding)) {
             message?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
             if (entering) Centered { CircularProgressIndicator() }
@@ -128,48 +128,58 @@ private fun isAfterLogin(base: String, url: String): Boolean {
     return page.authority == site.authority && !page.path.startsWith("/accounts/")
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun Bar(title: String, onBack: (() -> Unit)? = null, actions: @Composable () -> Unit = {}) {
-    TopAppBar(
-        title = { Text(title) },
-        navigationIcon = { onBack?.let { TextButton(onClick = it) { Text("‹ Voltar") } } },
-        actions = { actions() },
-    )
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TicketsScreen(model: MainViewModel) {
-    val labels = listOf(Queue.MINE to "Meus", Queue.SUPPORT to "Suporte", Queue.TO_CLOSE to "A fechar")
+    val queues = listOf(Queue.MINE to "Meus", Queue.SUPPORT to "Suporte", Queue.TO_CLOSE to "A fechar")
+    val queueName = queues.first { it.first == model.queue }.second
+    val title = when (model.mode) {
+        ListMode.Normal -> when (model.queue) {
+            Queue.MINE -> "Meus chamados"
+            Queue.SUPPORT -> "Fila de suporte"
+            Queue.TO_CLOSE -> "A fechar"
+        }
+        ListMode.Snoozed -> "Adiados · $queueName"
+        ListMode.Archived -> "Arquivados · $queueName"
+    }
+    val searchable = model.queue == Queue.SUPPORT || model.mode != ListMode.Normal
     Scaffold(
         topBar = {
-            Bar("Chamados", actions = {
-                TextButton(onClick = model::openNewTicket) { Text("Novo") }
-                TextButton(onClick = model::refresh) { Text("Atualizar") }
-                TextButton(onClick = model::openSettings) { Text("Config.") }
-            })
+            GovBrHeader(
+                title = title,
+                subtitle = "Chamados do SUAP",
+                menu = queues.map { (queue, label) -> HeaderItem(label, selected = model.queue == queue) { model.chooseQueue(queue) } } +
+                    listOf(
+                        HeaderItem("Adiados", selected = model.mode == ListMode.Snoozed) { model.chooseMode(ListMode.Snoozed) },
+                        HeaderItem("Arquivados", selected = model.mode == ListMode.Archived) { model.chooseMode(ListMode.Archived) },
+                    ),
+                quick = listOf(
+                    HeaderItem("Configurações") { model.openSettings() },
+                    HeaderItem("Sincronização entre dispositivos") { model.openSync() },
+                ),
+                functions = listOf(
+                    HeaderItem("Novo chamado") { model.openNewTicket() },
+                    HeaderItem("Atualizar") { model.refresh() },
+                ),
+                search = if (searchable) {
+                    HeaderSearch(
+                        label = if (model.mode != ListMode.Normal) "Buscar no título local" else "Buscar no texto dos chamados",
+                        value = model.searchText,
+                        onChange = { model.searchText = it },
+                        onSubmit = { model.refresh() },
+                        onClose = {
+                            model.searchText = ""
+                            model.refresh()
+                        },
+                    )
+                } else {
+                    null
+                },
+                account = listOf(HeaderItem("Sair (esquecer a sessão)") { model.logout() }),
+            )
         },
     ) { padding ->
         Column(Modifier.padding(padding)) {
-            FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                labels.forEach { (queue, label) ->
-                    FilterChip(selected = model.queue == queue, onClick = { model.chooseQueue(queue) }, label = { Text(label) })
-                }
-                FilterChip(selected = model.mode == ListMode.Snoozed, onClick = { model.chooseMode(ListMode.Snoozed) }, label = { Text("Adiados") })
-                FilterChip(selected = model.mode == ListMode.Archived, onClick = { model.chooseMode(ListMode.Archived) }, label = { Text("Arquivados") })
-            }
-            if (model.queue == Queue.SUPPORT || model.mode != ListMode.Normal) {
-                OutlinedTextField(
-                    value = model.searchText,
-                    onValueChange = { model.searchText = it },
-                    label = { Text(if (model.mode != ListMode.Normal) "Buscar no título local (Enter)" else "Buscar no texto (Enter)") },
-                    singleLine = true,
-                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { model.refresh() }),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
-                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                )
-            }
             when {
                 model.listLoading -> Centered { CircularProgressIndicator() }
                 model.listError != null -> Message(model.listError!!)
@@ -219,7 +229,7 @@ fun DetailScreen(model: MainViewModel, id: String) {
         exported?.let { shareZip(context, it.path) }
         model.exported = null
     }
-    Scaffold(topBar = { Bar("Chamado #$id", onBack = model::back) }) { padding ->
+    Scaffold(topBar = { GovBrHeader("Chamado #$id", onBack = model::back) }) { padding ->
         Column(Modifier.padding(padding)) {
             when {
                 model.detailLoading -> Centered { CircularProgressIndicator() }
@@ -333,7 +343,7 @@ private fun openFile(context: Context, path: String) {
 fun SettingsScreen(model: MainViewModel) {
     BackHandler { model.back() }
     var url by remember { mutableStateOf(model.baseUrl) }
-    Scaffold(topBar = { Bar("Configurações", onBack = model::back) }) { padding ->
+    Scaffold(topBar = { GovBrHeader("Configurações", onBack = model::back) }) { padding ->
         Column(
             Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
