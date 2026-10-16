@@ -145,6 +145,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Quantos chamados a aba tem em cada situação (os selos dos filtros); `null` até a primeira contagem. */
     var counts by mutableStateOf<ListCounts?>(null)
         private set
+    /** Os arquivos das fotos de quem pediu (caminho da foto no SUAP → arquivo no aparelho). */
+    var photoFiles by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
     private var listStale = false
 
     // Sincronização
@@ -226,6 +229,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         titles = emptyMap()
         archived = emptySet()
         counts = null
+        photoFiles = emptyMap()
         snoozes = emptyMap()
         listError = null
         mode = ListMode.Normal
@@ -361,6 +365,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 tickets = open().list(queue, query)
                 listStale = false
+                loadPhotos(tickets)
                 // Os selos não atrapalham a lista: se a contagem falhar, ficam como estavam.
                 val base = ListQuery(
                     title = null, view = ListView.NORMAL, text = if (marked) null else text,
@@ -372,6 +377,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 listLoading = false
             }
+        }
+    }
+
+    /** Baixa (uma vez) as fotos de quem pediu; a lista não espera por elas. */
+    private fun loadPhotos(list: List<uniffi.chamados_mobile.TicketSummary>) {
+        val wanted = list.mapNotNull { it.photo }.distinct().filter { it !in photoFiles }
+        if (wanted.isEmpty()) return
+        viewModelScope.launch {
+            val found = wanted.mapNotNull { path -> runCatching { open().ticketPhoto(path) }.getOrNull()?.let { path to it } }
+            if (found.isNotEmpty()) photoFiles = photoFiles + found
         }
     }
 

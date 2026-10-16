@@ -20,7 +20,7 @@ pub struct UserProfile {
 
 /// O caminho de uma imagem do SUAP: um endereço do mesmo SUAP, relativo ou completo, e nunca de outro
 /// servidor (a sessão só vai ao SUAP do perfil). A imagem padrão de "sem foto" não conta.
-fn same_site_path(source: &str, base_url: &Url) -> Option<String> {
+pub(crate) fn same_site_path(source: &str, base_url: &Url) -> Option<String> {
     let url = base_url.join(source).ok()?;
     let same_site = url.host_str() == base_url.host_str() && url.port() == base_url.port();
     let is_default = url.path().ends_with("/default.jpg");

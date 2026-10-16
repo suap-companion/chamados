@@ -200,6 +200,7 @@ fn narrowing_by_local_title_and_limit() {
         subject: None,
         status: None,
         details_url: String::new(),
+        photo: None,
     };
     let all = || vec![ticket("1"), ticket("2"), ticket("3")];
     let ids =

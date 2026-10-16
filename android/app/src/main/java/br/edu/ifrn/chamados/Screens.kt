@@ -247,7 +247,7 @@ fun TicketsScreen(model: MainViewModel) {
                             )
                         }
                         else -> items(model.tickets, key = { it.id }) { ticket ->
-                            TicketItem(ticket, model.titles[ticket.id], model.snoozes[ticket.id]) { model.openDetail(ticket.id) }
+                            TicketItem(ticket, model.titles[ticket.id], model.snoozes[ticket.id], photo = ticket.photo?.let { model.photoFiles[it] }) { model.openDetail(ticket.id) }
                             ListDivider()
                         }
                     }
