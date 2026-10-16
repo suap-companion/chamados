@@ -190,3 +190,7 @@ A fachada ganhou `assign`, `escalate`, `returnTicket`, `reclassify`, `addTags`/`
 ## Nome do repositório (#118)
 
 O repositório passou de `suap-companion/chamados-cli` para **`suap-companion/chamados`**: ele agora tem a biblioteca, o CLI e o app Android. O GitHub redireciona o endereço antigo (clones, links e releases), mas atualize o remoto local: `git remote set-url origin git@github.com:suap-companion/chamados.git`. O nome do binário (`chamados`), dos crates e dos arquivos das releases não mudou; os segredos da chave do APK e os campos de horas acompanharam o repositório.
+
+## Selos de quantidade (#117)
+
+Os filtros de cada aba (Ativos, Adiados, Arquivados) mostram um selo com quantos chamados há em cada situação (acima de 99, "99+"; sem selo quando é zero). A conta vem da fachada (`list_counts`): Ativos usa a lista de sempre da aba; Adiados e Arquivados contam em todas as situações do SUAP, como as listas deles (na aba "A fechar", que só pagina, a mesma lista serve às três). Os números se atualizam a cada atualização da lista, inclusive ao arquivar, adiar ou desfazer; se a contagem falhar, os selos ficam como estavam.
