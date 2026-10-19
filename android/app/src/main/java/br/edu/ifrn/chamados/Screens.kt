@@ -33,6 +33,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
@@ -230,7 +232,10 @@ fun TicketsScreen(model: MainViewModel) {
                 }
             }
             PullToRefreshBox(isRefreshing = model.listLoading, onRefresh = model::refresh, modifier = Modifier.fillMaxSize()) {
-                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
+                val listState = rememberLazyListState()
+                val nearEnd by remember { derivedStateOf { val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0; last >= listState.layoutInfo.totalItemsCount - 3 } }
+                LaunchedEffect(nearEnd, model.tickets.size, model.listLoading, model.loadingMore) { if (nearEnd) model.loadMore() }
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
                     val error = model.listError
                     when {
                         error != null -> item { ListState(error, isError = true, onRetry = model::refresh) }
@@ -250,6 +255,10 @@ fun TicketsScreen(model: MainViewModel) {
                             TicketItem(ticket, model.titles[ticket.id], model.snoozes[ticket.id], photo = ticket.photo?.let { model.photoFiles[it] }) { model.openDetail(ticket.id) }
                             ListDivider()
                         }
+                    }
+                    if (model.tickets.isNotEmpty() && error == null) {
+                        if (model.loadingMore) item { TicketListSkeleton(count = 2) }
+                        else if (model.endReached) item { ListState("Fim da lista.", isError = false) }
                     }
                 }
             }

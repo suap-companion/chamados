@@ -30,6 +30,9 @@ const val PRODUCTION_URL = "https://suap.ifrn.edu.br/"
 const val LOCAL_URL = "http://10.0.2.2:8000/"
 
 /** O que a lista mostra: as de sempre, os arquivados ou os adiados (marcas só nossas, sincronizadas). */
+/** Quantas páginas seguidas sem nada novo a rolagem tenta antes de dar a lista por encerrada. */
+private const val MAX_EMPTY_PAGES = 5
+
 enum class ListMode { Normal, Archived, Snoozed }
 
 /** Em qual tela o app está. */
@@ -148,6 +151,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Os arquivos das fotos de quem pediu (caminho da foto no SUAP → arquivo no aparelho). */
     var photoFiles by mutableStateOf<Map<String, String>>(emptyMap())
         private set
+    /** Está carregando a página seguinte da lista (rolagem até o fim). */
+    var loadingMore by mutableStateOf(false)
+        private set
+    /** A lista já mostrou tudo o que o SUAP tem para esta aba e situação. */
+    var endReached by mutableStateOf(false)
+        private set
+    private var nextPage = 2u
+    private var listGeneration = 0
     private var listStale = false
 
     // Sincronização
@@ -346,36 +357,84 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refresh()
     }
 
+    /** Os filtros da lista da aba e da situação em uso, na página pedida (`null` = a primeira). */
+    private fun listQuery(page: UInt?): ListQuery {
+        val text = searchText.trim().ifEmpty { null }
+        // Nos arquivados e nos adiados a busca é pelo título local, e todas as situações entram.
+        val view = when (mode) {
+            ListMode.Normal -> ListView.NORMAL
+            ListMode.Archived -> ListView.ARCHIVED
+            ListMode.Snoozed -> ListView.SNOOZED
+        }
+        val marked = mode != ListMode.Normal
+        return ListQuery(
+            title = if (marked) text else null, view = view, text = if (marked) null else text,
+            statuses = emptyList(), allStatuses = marked && queue != Queue.TO_CLOSE, since = null, until = null, page = page,
+        )
+    }
+
     fun refresh() {
+        val generation = ++listGeneration
         viewModelScope.launch {
             listLoading = true
             listError = null
             try {
-                val text = searchText.trim().ifEmpty { null }
-                // Nos arquivados e nos adiados a busca é pelo título local, e todas as situações entram.
-                val view = when (mode) {
-                    ListMode.Normal -> ListView.NORMAL
-                    ListMode.Archived -> ListView.ARCHIVED
-                    ListMode.Snoozed -> ListView.SNOOZED
-                }
-                val marked = mode != ListMode.Normal
-                val query = ListQuery(
-                    title = if (marked) text else null, view = view, text = if (marked) null else text,
-                    statuses = emptyList(), allStatuses = marked && queue != Queue.TO_CLOSE, since = null, until = null, page = null,
-                )
-                tickets = open().list(queue, query)
+                tickets = open().list(queue, listQuery(null))
+                nextPage = 2u
+                endReached = false
                 listStale = false
                 loadPhotos(tickets)
                 // Os selos não atrapalham a lista: se a contagem falhar, ficam como estavam.
+                val text = searchText.trim().ifEmpty { null }
                 val base = ListQuery(
-                    title = null, view = ListView.NORMAL, text = if (marked) null else text,
+                    title = null, view = ListView.NORMAL, text = if (mode != ListMode.Normal) null else text,
                     statuses = emptyList(), allStatuses = false, since = null, until = null, page = null,
                 )
-                runCatching { open().listCounts(queue, base) }.onSuccess { counts = it }
+                runCatching { open().listCounts(queue, base) }.onSuccess { if (generation == listGeneration) counts = it }
             } catch (error: Throwable) {
                 if (!stillLoggedIn()) screen = Screen.Login else listError = error.readable()
             } finally {
                 listLoading = false
+            }
+        }
+    }
+
+    /**
+     * Carrega a próxima página ao rolar até o fim, sem repetir chamados. Uma página em que tudo já estava
+     * na lista (ou estava arquivado/adiado) não conta: tenta a seguinte, até algumas vezes. Uma página
+     * além do fim (o SUAP recusa ou devolve vazio) encerra a lista.
+     */
+    fun loadMore() {
+        if (listLoading || loadingMore || endReached || tickets.isEmpty() || listError != null) return
+        val generation = listGeneration
+        viewModelScope.launch {
+            loadingMore = true
+            try {
+                var added = 0
+                var tries = 0
+                while (added == 0 && tries < MAX_EMPTY_PAGES && !endReached) {
+                    val page = nextPage
+                    val more = try {
+                        open().list(queue, listQuery(page))
+                    } catch (error: Throwable) {
+                        if (!stillLoggedIn()) { screen = Screen.Login; return@launch }
+                        emptyList()
+                    }
+                    if (generation != listGeneration) return@launch
+                    val known = tickets.map { it.id }.toSet()
+                    val fresh = more.filter { it.id !in known }
+                    if (fresh.isNotEmpty()) tickets = tickets + fresh
+                    added = fresh.size
+                    nextPage = page + 1u
+                    tries++
+                    // Sem nada de novo e sem nada na página: acabou. Páginas só de ocultos seguem adiante.
+                    if (more.isEmpty()) endReached = true
+                    loadPhotos(fresh)
+                }
+                // Cinco páginas seguidas sem nada novo: a lista termina aqui.
+                if (added == 0) endReached = true
+            } finally {
+                loadingMore = false
             }
         }
     }
