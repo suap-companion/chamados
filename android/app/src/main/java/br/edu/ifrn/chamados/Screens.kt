@@ -399,18 +399,9 @@ fun DetailScreen(model: MainViewModel, id: String) {
 @Composable
 private fun Details(model: MainViewModel, view: TicketView) {
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item {
-            Text(view.heading ?: view.title, style = MaterialTheme.typography.titleLarge)
-            if (view.statuses.isNotEmpty()) Text(view.statuses.joinToString(" · "), style = MaterialTheme.typography.labelLarge)
-            model.detailError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        }
-        items(view.fields) { field ->
-            Column {
-                Text(field.label, style = MaterialTheme.typography.labelMedium)
-                Text(field.value)
-            }
-        }
-        item { TitleSection(model, view.id) }
+        item { DetailHeader(model, view) }
+        items(view.fields) { field -> FieldItem(field) }
+        item { LocalControls(model, view.id) }
         item { ActionsSection(model, view) }
         if (view.attachments.isNotEmpty()) {
             item { Text("Anexos", style = MaterialTheme.typography.titleMedium) }
@@ -435,21 +426,10 @@ private fun Details(model: MainViewModel, view: TicketView) {
     }
 }
 
-/** O título local do chamado (só seu, o SUAP não tem): entra na lista e na sincronização. */
+/** O que é só seu no chamado (o SUAP não tem): arquivar, adiar e exportar. */
 @Composable
-private fun TitleSection(model: MainViewModel, id: String) {
-    var text by remember(id, model.titles[id]) { mutableStateOf(model.titles[id].orEmpty()) }
+private fun LocalControls(model: MainViewModel, id: String) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            label = { Text("Título local (só seu)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(onClick = { model.saveTitle(id, text) }, enabled = text.trim() != model.titles[id].orEmpty()) {
-            Text(if (text.isBlank() && model.titles[id] != null) "Remover título" else "Salvar título")
-        }
         val isArchived = id in model.archived
         OutlinedButton(onClick = { model.setArchived(id, !isArchived) }) {
             Text(if (isArchived) "Desarquivar" else "Arquivar (só no app e na sincronização)")
