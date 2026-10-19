@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Instalar no Android · chamados</title>
+  <meta name="description" content="Baixe o app chamados para Android, permita a instalação e entre com a sua conta do SUAP.">
+  <meta name="theme-color" content="#11786C">
+  <link rel="icon" href="assets/img/icone.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/rawline-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip" href="#conteudo">Ir para o conteúdo</a>
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="brand" href="./" aria-label="chamados, central de ajuda">
+        <img src="assets/img/icone.svg" alt="" width="36" height="36"><span>chamados <small>ajuda</small></span>
+      </a>
+      <form class="search" role="search" onsubmit="return false">
+        <label class="sr" for="busca">Buscar na ajuda</label>
+        <input id="busca" type="search" placeholder="Buscar na ajuda…" autocomplete="off">
+        <ul id="resultados" class="results" hidden></ul>
+      </form>
+    </div>
+    <nav class="wrap menu" aria-label="Principal"><a href="instalar-android.html" aria-current="page">Instalar no Android</a><a href="instalar-cli.html">Instalar o CLI</a><a href="usar-app.html">Usar o app</a><a href="usar-cli.html">Usar o CLI</a><a href="faq.html">Dúvidas</a><a href="suporte.html">Fale conosco</a></nav>
+  </header>
+  <nav class="crumbs wrap" aria-label="Você está em"><a href="./">Central de ajuda</a> › <span>Instalar no Android</span></nav>
+  <main id="conteudo" class="wrap doc">
+
+    <h1>Instalar no Android</h1>
+    <p class="lead">O app funciona no Android 7.0 ou mais novo. Ele não está em loja de aplicativos: você baixa o arquivo (APK) direto do GitHub.</p>
+
+    <ol class="steps">
+      <li><strong>Baixe o APK.</strong> No celular, abra <a data-asset="android" href="https://github.com/suap-companion/chamados/releases/latest">chamados-<span data-version>…</span>-android.apk</a> (versão mais recente).</li>
+      <li><strong>Abra o arquivo baixado.</strong> Pelas notificações do navegador ou pelo app Arquivos (pasta Downloads).</li>
+      <li><strong>Permita a instalação.</strong> O Android pergunta se o navegador (ou o app Arquivos) pode instalar aplicativos de fontes desconhecidas. Toque em <em>Configurações</em>, ative a permissão e volte.</li>
+      <li><strong>Toque em Instalar</strong> e depois em <em>Abrir</em>.</li>
+      <li><strong>Entre.</strong> O app abre a página de login do próprio SUAP. Entre como você entra no navegador (inclusive com gov.br). <strong>O app nunca vê nem guarda a sua senha.</strong></li>
+      <li><strong>Ative os avisos</strong> quando o app pedir a permissão de notificações (opcional, mas é ela que avisa quando um chamado muda).</li>
+    </ol>
+
+    <div class="callout">
+      <strong>Atualizar.</strong> Baixe o APK da versão nova e instale por cima: seus títulos, arquivos e adiamentos continuam. Se o Android recusar a atualização, a versão instalada veio de outra assinatura: desinstale (isso apaga os dados do app) e instale de novo.
+    </div>
+
+    <h2>Qual SUAP o app usa?</h2>
+    <p>O padrão é o SUAP do IFRN (<code>https://suap.ifrn.edu.br/</code>). Para usar outro endereço, ou mais de um, abra o menu da conta e escolha <em>Cadastrar novo perfil</em>: cada perfil tem a sua própria sessão e os seus próprios dados.</p>
+
+    <h2>Conferir que o arquivo é o original (opcional)</h2>
+    <p>O APK é assinado. A impressão digital SHA-256 do certificado é:</p>
+    <p><code class="wrapcode">EC:7A:C4:10:83:D5:23:6B:21:DE:C2:AC:61:B9:50:03:FE:C7:EE:40:CF:F2:4A:B6:92:57:C5:12:0C:1B:16:77</code></p>
+    <p>Com as ferramentas do Android: <code>apksigner verify --print-certs chamados-….apk</code>.</p>
+
+    <p><a class="btn" data-asset="android" href="https://github.com/suap-companion/chamados/releases/latest">Baixar o app (APK)</a> <a class="btn ghost" href="usar-app.html">Próximo: usar o app</a></p>
+
+  </main>
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <p>O chamados <strong>não é um projeto oficial</strong> do IFRN nem do SUAP. · <a href="https://suap-companion.github.io/">suap-companion</a></p>
+      <nav aria-label="Rodapé">
+        <a href="privacidade.html">Privacidade</a>
+        <a href="https://github.com/suap-companion/chamados">Código</a>
+        <a href="https://github.com/suap-companion/chamados/issues">Relatar um problema</a>
+        <a href="assets/fonts/Rawline-OFL.txt">Licença da fonte</a>
+      </nav>
+    </div>
+  </footer>
+  <script src="assets/site.js" defer></script>
+</body>
+</html>

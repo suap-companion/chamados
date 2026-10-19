@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacidade e segurança · chamados</title>
+  <meta name="description" content="O que o chamados guarda no aparelho, o que envia ao SUAP e como a sincronização é cifrada.">
+  <meta name="theme-color" content="#11786C">
+  <link rel="icon" href="assets/img/icone.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/rawline-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip" href="#conteudo">Ir para o conteúdo</a>
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="brand" href="./" aria-label="chamados, central de ajuda">
+        <img src="assets/img/icone.svg" alt="" width="36" height="36"><span>chamados <small>ajuda</small></span>
+      </a>
+      <form class="search" role="search" onsubmit="return false">
+        <label class="sr" for="busca">Buscar na ajuda</label>
+        <input id="busca" type="search" placeholder="Buscar na ajuda…" autocomplete="off">
+        <ul id="resultados" class="results" hidden></ul>
+      </form>
+    </div>
+    <nav class="wrap menu" aria-label="Principal"><a href="instalar-android.html">Instalar no Android</a><a href="instalar-cli.html">Instalar o CLI</a><a href="usar-app.html">Usar o app</a><a href="usar-cli.html">Usar o CLI</a><a href="faq.html">Dúvidas</a><a href="suporte.html">Fale conosco</a></nav>
+  </header>
+  <nav class="crumbs wrap" aria-label="Você está em"><a href="./">Central de ajuda</a> › <span>Privacidade e segurança</span></nav>
+  <main id="conteudo" class="wrap doc">
+
+    <h1>Privacidade e segurança</h1>
+    <p class="lead">Resumo em linguagem simples. Não há servidor do chamados no meio: o app e o CLI falam direto com o SUAP.</p>
+    <ul class="ticks">
+      <li><strong>Senha:</strong> o app nunca vê nem guarda a sua senha (o login é a página do SUAP). O CLI lê a senha de uma variável de ambiente, na hora do login, e não a salva.</li>
+      <li><strong>Sessão:</strong> só os cookies de sessão ficam no armazenamento privado do app (ou no diretório de dados do CLI).</li>
+      <li><strong>O que é só seu:</strong> títulos, chamados arquivados e adiados ficam no aparelho e nunca vão para o SUAP.</li>
+      <li><strong>Sincronização:</strong> opcional e <strong>cifrada de ponta a ponta</strong> (XChaCha20-Poly1305). Ela vai só para o armazenamento (R2 ou S3) que você escolher; a chave e as credenciais não saem do aparelho.</li>
+      <li><strong>Avisos:</strong> na tela bloqueada, o conteúdo do chamado não aparece na notificação.</li>
+      <li><strong>Compartilhar para o app:</strong> nada é enviado sem a sua confirmação; as cópias temporárias dos arquivos são apagadas ao terminar.</li>
+      <li><strong>Código aberto:</strong> tudo pode ser conferido no <a href="https://github.com/suap-companion/chamados">repositório</a>.</li>
+    </ul>
+    <p class="callout">Ao relatar um problema, <strong>nunca</strong> cole senhas, cookies, chaves de sincronização nem o QR de pareamento.</p>
+
+  </main>
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <p>O chamados <strong>não é um projeto oficial</strong> do IFRN nem do SUAP. · <a href="https://suap-companion.github.io/">suap-companion</a></p>
+      <nav aria-label="Rodapé">
+        <a href="privacidade.html">Privacidade</a>
+        <a href="https://github.com/suap-companion/chamados">Código</a>
+        <a href="https://github.com/suap-companion/chamados/issues">Relatar um problema</a>
+        <a href="assets/fonts/Rawline-OFL.txt">Licença da fonte</a>
+      </nav>
+    </div>
+  </footer>
+  <script src="assets/site.js" defer></script>
+</body>
+</html>

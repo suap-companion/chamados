@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Usar o app · chamados</title>
+  <meta name="description" content="Guia do app chamados por tarefa: lista, abrir chamado, arquivar, adiar, seleção em lote, avisos e mais.">
+  <meta name="theme-color" content="#11786C">
+  <link rel="icon" href="assets/img/icone.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/rawline-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip" href="#conteudo">Ir para o conteúdo</a>
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="brand" href="./" aria-label="chamados, central de ajuda">
+        <img src="assets/img/icone.svg" alt="" width="36" height="36"><span>chamados <small>ajuda</small></span>
+      </a>
+      <form class="search" role="search" onsubmit="return false">
+        <label class="sr" for="busca">Buscar na ajuda</label>
+        <input id="busca" type="search" placeholder="Buscar na ajuda…" autocomplete="off">
+        <ul id="resultados" class="results" hidden></ul>
+      </form>
+    </div>
+    <nav class="wrap menu" aria-label="Principal"><a href="instalar-android.html">Instalar no Android</a><a href="instalar-cli.html">Instalar o CLI</a><a href="usar-app.html" aria-current="page">Usar o app</a><a href="usar-cli.html">Usar o CLI</a><a href="faq.html">Dúvidas</a><a href="suporte.html">Fale conosco</a></nav>
+  </header>
+  <nav class="crumbs wrap" aria-label="Você está em"><a href="./">Central de ajuda</a> › <span>Usar o app</span></nav>
+  <main id="conteudo" class="wrap doc">
+
+    <h1>Usar o app</h1>
+    <p class="lead">Um guia por tarefa. Clique no que você quer fazer.</p>
+    <ul class="toc">
+      <li><a href="#lista">Ver e organizar a lista</a></li>
+      <li><a href="#abrir">Abrir um chamado</a></li>
+      <li><a href="#detalhe">Ler e atender um chamado</a></li>
+      <li><a href="#titulo">Dar um título seu</a></li>
+      <li><a href="#arquivar-adiar">Arquivar e adiar</a></li>
+      <li><a href="#lote">Selecionar vários chamados</a></li>
+      <li><a href="#avisos">Receber avisos</a></li>
+      <li><a href="#compartilhar">Compartilhar do celular para um chamado</a></li>
+      <li><a href="#perfis">Trocar de conta ou de SUAP</a></li>
+      <li><a href="#sincronizar">Sincronizar com o computador</a></li>
+    </ul>
+
+    <h2 id="lista">Ver e organizar a lista</h2>
+    <div class="with-shot">
+      <div>
+        <p>A tela inicial tem três abas: <strong>Meus</strong> (chamados que você abriu ou em que é interessado), <strong>Suporte</strong> (a fila de atendimento, com busca no texto) e <strong>A fechar</strong> (resolvidos que você pode fechar).</p>
+        <p>Abaixo das abas, os filtros <strong>Ativos</strong>, <strong>Adiados</strong> e <strong>Arquivados</strong> mostram quantos chamados há em cada um. Ao rolar até o fim, o app carrega mais chamados. Puxe a lista para baixo para atualizar.</p>
+      </div>
+      <figure class="phone"><img src="assets/img/app-lista.webp" alt="Lista de chamados com abas e selos de quantidade" width="270" height="600" loading="lazy"></figure>
+    </div>
+
+    <h2 id="abrir">Abrir um chamado</h2>
+    <p>Toque no botão <strong>+</strong> da lista, informe o número do serviço, o interessado (alguns serviços exigem) e a descrição, e anexe até 3 arquivos. O app lembra o serviço e o interessado da próxima vez. O SUAP só aceita arquivos <code>xlsx</code>, <code>xls</code>, <code>csv</code>, <code>docx</code>, <code>doc</code>, <code>pdf</code>, <code>jpg</code>, <code>jpeg</code> e <code>png</code>.</p>
+
+    <h2 id="detalhe">Ler e atender um chamado</h2>
+    <p>Toque num chamado para abrir. No alto estão o título, a situação e três menus:</p>
+    <ul>
+      <li><strong>Ações:</strong> o que cabe na situação atual (assumir, iniciar atendimento, comentar, nota interna, anexar arquivo, resolver, suspender, cancelar, reabrir, fechar e avaliar). Cada ação pede confirmação antes de enviar.</li>
+      <li><strong>Gestão:</strong> atribuir a outro atendente, escalar, devolver, reclassificar, e adicionar ou remover tags e interessados.</li>
+      <li><strong>Mais:</strong> o que é só seu: arquivar, adiar e exportar o chamado em ZIP.</li>
+    </ul>
+    <p>Mais abaixo, a linha do tempo tem quatro abas: <strong>Tudo</strong>, <strong>Comentários</strong>, <strong>Notas internas</strong> (só para a equipe de atendimento) e <strong>Anexos</strong>. O botão acima das mensagens troca a ordem (mais novos ou mais antigos primeiro) e o app lembra a sua escolha. Toque num anexo para baixar e abrir.</p>
+
+    <h2 id="titulo">Dar um título seu</h2>
+    <p>O SUAP não tem título de chamado, mas o app tem. Toque no lápis ao lado do título do chamado, escreva e salve. O título aparece na lista e fica <strong>só com você</strong> (e no seu outro aparelho, se sincronizar). Para tirar, apague o texto e remova.</p>
+
+    <h2 id="arquivar-adiar">Arquivar e adiar</h2>
+    <div class="with-shot">
+      <div>
+        <p>No menu <strong>Mais</strong> do chamado:</p>
+        <ul>
+          <li><strong>Arquivar</strong> tira o chamado das listas e dos avisos. Ele continua no SUAP; você o vê no filtro Arquivados e pode desarquivar quando quiser.</li>
+          <li><strong>Adiar</strong> esconde o chamado até a hora escolhida (mais tarde, amanhã, fim de semana, próxima semana ou uma data e hora). Nessa hora ele volta ao topo, marcado com ↩, e o app avisa.</li>
+        </ul>
+        <p>Nada disso muda nada no SUAP: é só a sua organização.</p>
+      </div>
+      <figure class="phone"><img src="assets/img/app-adiar.webp" alt="Escolha de quando o chamado volta" width="270" height="600" loading="lazy"></figure>
+    </div>
+
+    <h2 id="lote">Selecionar vários chamados</h2>
+    <div class="with-shot">
+      <div>
+        <p>Na lista, <strong>toque e segure</strong> um chamado para começar a selecionar. Toque nos outros para marcar ou desmarcar, ou use <em>Selecionar tudo</em>. A barra no alto oferece: <strong>Arquivar</strong> (ou Desarquivar), <strong>Adiar</strong>, <strong>Comentar</strong>, <strong>Nota interna</strong> e <strong>Tags</strong>, para todos de uma vez.</p>
+        <p>No fim, um resumo mostra quantos deram certo e por que algum falhou; só os que falharam continuam selecionados, para você tentar de novo.</p>
+      </div>
+      <figure class="phone"><img src="assets/img/app-lote.webp" alt="Chamados selecionados e as ações em lote" width="270" height="600" loading="lazy"></figure>
+    </div>
+
+    <h2 id="avisos">Receber avisos</h2>
+    <p>Em <em>Configurações › Acompanhamento</em>, escolha a lista (Meus ou Suporte) e de quanto em quanto tempo o app confere (15, 30, 60 ou 120 minutos); você pode incluir as mensagens novas. Cada mudança vira uma notificação. O app também avisa quando um chamado adiado volta e quando a sessão expirou. Na tela bloqueada, o conteúdo do chamado não aparece.</p>
+    <p class="callout">O Android pode atrasar os avisos para poupar bateria. Veja <a href="faq.html#avisos">“Os avisos não chegam”</a>.</p>
+
+    <h2 id="compartilhar">Compartilhar do celular para um chamado</h2>
+    <p>Em qualquer app (galeria, arquivos, navegador, mensagens), use <strong>Compartilhar › Chamados</strong> com um texto ou arquivos. O app <strong>sempre pergunta</strong> o que fazer (criar chamado, anexar, comentar, nota interna, resolver, cancelar, reabrir ou suspender) e em qual chamado, mostra um resumo e só envia depois da sua confirmação. Arquivos de tipos que o SUAP não aceita aparecem riscados, com o motivo.</p>
+
+    <h2 id="perfis">Trocar de conta ou de SUAP</h2>
+    <p>Toque na sua foto (canto superior direito). O menu mostra seu nome, sua matrícula e os perfis. Escolha outro perfil para trocar, ou <em>Cadastrar novo perfil</em> para usar outro endereço do SUAP. Cada perfil tem sessão e dados próprios; trocar não apaga nada. <em>Sair</em> esquece a sessão do perfil.</p>
+
+    <h2 id="sincronizar">Sincronizar com o computador</h2>
+    <p>Para levar seus títulos, arquivos e adiamentos entre o app e o CLI, os dois usam um mesmo espaço de armazenamento (R2 ou S3) <strong>cifrado de ponta a ponta</strong>. No computador, rode <code>chamados sync key pair</code>: ele mostra um QR. No app, em <em>Configurações › Sincronização entre dispositivos</em>, leia o QR (ou cole o texto) e digite as credenciais do armazenamento; elas não vão no QR. Depois, toque em <em>Sincronizar agora</em>. <strong>Não mostre o QR em telas compartilhadas:</strong> ele contém a chave.</p>
+
+  </main>
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <p>O chamados <strong>não é um projeto oficial</strong> do IFRN nem do SUAP. · <a href="https://suap-companion.github.io/">suap-companion</a></p>
+      <nav aria-label="Rodapé">
+        <a href="privacidade.html">Privacidade</a>
+        <a href="https://github.com/suap-companion/chamados">Código</a>
+        <a href="https://github.com/suap-companion/chamados/issues">Relatar um problema</a>
+        <a href="assets/fonts/Rawline-OFL.txt">Licença da fonte</a>
+      </nav>
+    </div>
+  </footer>
+  <script src="assets/site.js" defer></script>
+</body>
+</html>

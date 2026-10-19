@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dúvidas e problemas · chamados</title>
+  <meta name="description" content="Respostas para as dúvidas mais comuns: instalação, sessão expirada, avisos, anexos e dados.">
+  <meta name="theme-color" content="#11786C">
+  <link rel="icon" href="assets/img/icone.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/rawline-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip" href="#conteudo">Ir para o conteúdo</a>
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="brand" href="./" aria-label="chamados, central de ajuda">
+        <img src="assets/img/icone.svg" alt="" width="36" height="36"><span>chamados <small>ajuda</small></span>
+      </a>
+      <form class="search" role="search" onsubmit="return false">
+        <label class="sr" for="busca">Buscar na ajuda</label>
+        <input id="busca" type="search" placeholder="Buscar na ajuda…" autocomplete="off">
+        <ul id="resultados" class="results" hidden></ul>
+      </form>
+    </div>
+    <nav class="wrap menu" aria-label="Principal"><a href="instalar-android.html">Instalar no Android</a><a href="instalar-cli.html">Instalar o CLI</a><a href="usar-app.html">Usar o app</a><a href="usar-cli.html">Usar o CLI</a><a href="faq.html" aria-current="page">Dúvidas</a><a href="suporte.html">Fale conosco</a></nav>
+  </header>
+  <nav class="crumbs wrap" aria-label="Você está em"><a href="./">Central de ajuda</a> › <span>Dúvidas e problemas</span></nav>
+  <main id="conteudo" class="wrap doc">
+
+    <h1>Dúvidas e problemas</h1>
+
+    <h2>Instalação</h2>
+    <details><summary>O Android não deixa instalar o APK</summary>
+      <p>Na primeira vez, o Android pede para permitir que o navegador (ou o app Arquivos) instale aplicativos de fontes desconhecidas. Toque em <em>Configurações</em>, ative a permissão e abra o arquivo de novo. Se aparecer “app não instalado”, a versão que já está no aparelho tem outra assinatura: desinstale (isso apaga os dados do app) e instale de novo.</p></details>
+    <details><summary>Como atualizo o app?</summary>
+      <p>Baixe o APK mais novo na <a href="instalar-android.html">página de instalação</a> e instale por cima. Seus dados continuam.</p></details>
+    <details><summary>Qual versão eu tenho?</summary>
+      <p>No CLI: <code>chamados --version</code>. No app: Configurações do Android › Apps › chamados.</p></details>
+
+    <h2>Entrar e sessão</h2>
+    <details id="sessao"><summary>“Sessão expirada” ou o app volta para o login</summary>
+      <p>A sessão do SUAP expira de tempos em tempos. No app, entre de novo pelo login do SUAP. No CLI, rode <code>chamados login</code>. Seus títulos, arquivos e adiamentos não se perdem.</p></details>
+    <details><summary>Funciona com o login gov.br e com verificação em duas etapas?</summary>
+      <p>No app, sim: o login é a própria página do SUAP. No CLI, o <code>login</code> usa usuário e senha do SUAP.</p></details>
+    <details><summary>O app guarda a minha senha?</summary>
+      <p>Não. O app nunca vê a senha: só guarda a sessão (cookies) no armazenamento privado do aparelho. Veja <a href="privacidade.html">Privacidade</a>.</p></details>
+
+    <h2>Avisos</h2>
+    <details id="avisos"><summary>Os avisos não chegam ou chegam atrasados</summary>
+      <ul>
+        <li>Confirme a permissão de notificações do app (Android 13 ou mais novo) e que o acompanhamento está ligado em <em>Configurações › Acompanhamento</em>.</li>
+        <li>O Android só deixa o app conferir de tempos em tempos (no mínimo a cada 15 minutos) e a economia de bateria pode atrasar. Em <em>Configurações do Android › Apps › chamados › Bateria</em>, escolha “Sem restrições”.</li>
+        <li>Se a sessão expirou, o app avisa “sessão expirada”: entre de novo.</li>
+        <li>Não há aviso instantâneo (push): ele depende do intervalo escolhido.</li>
+      </ul></details>
+
+    <h2>Chamados e anexos</h2>
+    <details><summary>O anexo foi recusado</summary>
+      <p>O SUAP só aceita <code>xlsx</code>, <code>xls</code>, <code>csv</code>, <code>docx</code>, <code>doc</code>, <code>pdf</code>, <code>jpg</code>, <code>jpeg</code> e <code>png</code>, e até 3 anexos ao abrir um chamado. O app e o CLI avisam antes de enviar. Para outros tipos, compacte ou converta o arquivo para um dos aceitos.</p></details>
+    <details><summary>Arquivar ou adiar muda alguma coisa no SUAP?</summary>
+      <p>Não. Título, arquivar e adiar são só seus: ficam no aparelho (e na sincronização cifrada, se você a usar). O SUAP não sabe deles.</p></details>
+    <details><summary>Não vejo a aba “Notas internas”</summary>
+      <p>As notas internas são visíveis só para a equipe de atendimento. Se você não é da equipe, o SUAP não as envia e a aba não aparece.</p></details>
+    <details><summary>Uma ação foi recusada pelo SUAP</summary>
+      <p>O SUAP decide pelas suas permissões e pela situação do chamado. O app mostra o motivo que o SUAP deu; o chamado não muda quando uma ação é recusada.</p></details>
+
+    <h2>Dados</h2>
+    <details><summary>Troquei de celular e perdi meus títulos</summary>
+      <p>Títulos, arquivos e adiamentos ficam só no aparelho. Para levá-los a outro aparelho (ou ao computador), use a <a href="usar-app.html#sincronizar">sincronização cifrada</a> antes de trocar.</p></details>
+    <details><summary>O chamados é oficial?</summary>
+      <p>Não. É um projeto pessoal, sem apoio do IFRN nem do SUAP. Ele usa a sua conta, do mesmo jeito que o navegador, e só faz o que você pede.</p></details>
+
+    <p>Não achou? <a href="suporte.html">Fale conosco</a>.</p>
+
+  </main>
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <p>O chamados <strong>não é um projeto oficial</strong> do IFRN nem do SUAP. · <a href="https://suap-companion.github.io/">suap-companion</a></p>
+      <nav aria-label="Rodapé">
+        <a href="privacidade.html">Privacidade</a>
+        <a href="https://github.com/suap-companion/chamados">Código</a>
+        <a href="https://github.com/suap-companion/chamados/issues">Relatar um problema</a>
+        <a href="assets/fonts/Rawline-OFL.txt">Licença da fonte</a>
+      </nav>
+    </div>
+  </footer>
+  <script src="assets/site.js" defer></script>
+</body>
+</html>

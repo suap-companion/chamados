@@ -232,3 +232,7 @@ No núcleo, `TicketDetails` ganhou `thread` e `notes` (com o tipo `EntryKind`, o
 ## Ordem da linha do tempo (#133)
 
 Acima das entradas há um botão que alterna a ordem: **↓ Mais novos primeiro** (padrão, como o SUAP mostra) ou **↑ Mais antigos primeiro**. A escolha vale para todos os chamados, é guardada no aparelho (preferência `timeline_newest_first`, `CoreAccess.newestFirst`) e continua depois de fechar e abrir o app; ela se aplica às abas Tudo, Comentários e Notas internas (a aba Anexos mantém a ordem do SUAP, que não traz uma data por anexo).
+
+## Central de ajuda (#139)
+
+O site de suporte ao usuário final fica em `site/` (HTML estático, sem build) e é publicado no GitHub Pages em https://suap-companion.github.io/chamados/ pelo workflow `.github/workflows/pages.yml` (ao mesclar mudanças de `site/` na `main`; também à mão em Actions › Pages). Os links de download e a versão vêm da API do GitHub (release mais recente) por `site/assets/site.js`, com fallback para a página de releases; assim, uma release nova não exige mudar o site. As capturas de tela do app ficam em `site/assets/img/`.

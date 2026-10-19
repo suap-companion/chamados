@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Usar o CLI · chamados</title>
+  <meta name="description" content="Guia do chamados no terminal: listar, atender, títulos, arquivar, adiar, exportar para IA e acompanhar mudanças.">
+  <meta name="theme-color" content="#11786C">
+  <link rel="icon" href="assets/img/icone.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/rawline-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip" href="#conteudo">Ir para o conteúdo</a>
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="brand" href="./" aria-label="chamados, central de ajuda">
+        <img src="assets/img/icone.svg" alt="" width="36" height="36"><span>chamados <small>ajuda</small></span>
+      </a>
+      <form class="search" role="search" onsubmit="return false">
+        <label class="sr" for="busca">Buscar na ajuda</label>
+        <input id="busca" type="search" placeholder="Buscar na ajuda…" autocomplete="off">
+        <ul id="resultados" class="results" hidden></ul>
+      </form>
+    </div>
+    <nav class="wrap menu" aria-label="Principal"><a href="instalar-android.html">Instalar no Android</a><a href="instalar-cli.html">Instalar o CLI</a><a href="usar-app.html">Usar o app</a><a href="usar-cli.html" aria-current="page">Usar o CLI</a><a href="faq.html">Dúvidas</a><a href="suporte.html">Fale conosco</a></nav>
+  </header>
+  <nav class="crumbs wrap" aria-label="Você está em"><a href="./">Central de ajuda</a> › <span>Usar o CLI</span></nav>
+  <main id="conteudo" class="wrap doc">
+
+    <h1>Usar o CLI</h1>
+    <p class="lead">Exemplos dos comandos mais usados. Cada comando tem ajuda: <code>chamados &lt;comando&gt; --help</code>.</p>
+
+    <h2>Listar e ver</h2>
+<pre class="term">chamados list                       <span class="c"># fila de suporte</span>
+chamados list --meus                <span class="c"># meus chamados ativos</span>
+chamados list --busca moodle --status aberto
+chamados list --meus --todos --desde 2026-01-01
+chamados show 559298                <span class="c"># detalhes, histórico e anexos</span></pre>
+
+    <h2>Abrir e atender</h2>
+<pre class="term">chamados profile update --service 53 --interested 1     <span class="c"># padrões, uma vez</span>
+chamados open -d "Não consigo acessar as bibliotecas virtuais" -a print.png
+chamados assume 559298
+chamados start 559298
+chamados comment 559298 -m "Já estamos verificando."
+chamados note 559298 -m "Nota só para a equipe."
+chamados resolve 559298 -m "Resolvido: reiniciamos o serviço."</pre>
+    <p>Os tipos de anexo aceitos pelo SUAP são <code>xlsx</code>, <code>xls</code>, <code>csv</code>, <code>docx</code>, <code>doc</code>, <code>pdf</code>, <code>jpg</code>, <code>jpeg</code> e <code>png</code> (até 3 ao abrir).</p>
+
+    <h2>Títulos, arquivar e adiar (só seus)</h2>
+<pre class="term">chamados title 559298 "Moodle 5.3.0"       <span class="c"># dá um título</span>
+chamados archive 559298                     <span class="c"># some das listas e do watch</span>
+chamados snooze 559298 --amanha             <span class="c"># volta amanhã às 8h</span>
+chamados snooze 559298 --em 3h
+chamados list --adiados
+chamados list --arquivados</pre>
+
+    <h2>Exportar para a IA</h2>
+    <p>O comando gera um ZIP com <code>chamado.md</code> (texto legível), <code>chamado.json</code> (dados estruturados) e a pasta <code>anexos/</code>: ideal para entregar a um assistente de IA analisar. Nada de sessão ou cookie vai no ZIP.</p>
+<pre class="term">chamados export 559298
+chamados export 559298 --sem-anexos -o ~/analise</pre>
+
+    <h2>Acompanhar mudanças</h2>
+<pre class="term">chamados watch              <span class="c"># avisa de chamado novo, mudança de situação e mensagens</span>
+chamados watch --suporte    <span class="c"># acompanha a fila de suporte</span></pre>
+
+    <h2>Perfis e sincronização</h2>
+<pre class="term">chamados profile list
+chamados profile init local --base-url http://localhost:8000 --username meu_usuario
+chamados --profile local login
+chamados sync key pair      <span class="c"># QR para parear o app</span></pre>
+    <p>Quer o passo a passo de instalação? <a href="instalar-cli.html">Instalar o CLI</a>.</p>
+
+  </main>
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <p>O chamados <strong>não é um projeto oficial</strong> do IFRN nem do SUAP. · <a href="https://suap-companion.github.io/">suap-companion</a></p>
+      <nav aria-label="Rodapé">
+        <a href="privacidade.html">Privacidade</a>
+        <a href="https://github.com/suap-companion/chamados">Código</a>
+        <a href="https://github.com/suap-companion/chamados/issues">Relatar um problema</a>
+        <a href="assets/fonts/Rawline-OFL.txt">Licença da fonte</a>
+      </nav>
+    </div>
+  </footer>
+  <script src="assets/site.js" defer></script>
+</body>
+</html>
