@@ -9,7 +9,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -53,6 +55,7 @@ import uniffi.chamados_mobile.TicketSummary
  */
 
 /** Um chamado: avatar, número e situação, marca do adiamento, título local e assunto. Um único alvo de toque. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TicketItem(
     ticket: TicketSummary,
@@ -60,6 +63,7 @@ fun TicketItem(
     snooze: SnoozeItem?,
     photo: String? = null,
     selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val note = snooze?.let { if (it.due) "voltou do adiamento" else "volta ${formatMoment(it.until)}" }
@@ -72,7 +76,7 @@ fun TicketItem(
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .background(background)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .semantics(mergeDescendants = true) {
                 contentDescription = description
                 this.selected = selected
@@ -81,7 +85,7 @@ fun TicketItem(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Avatar(photo)
+        Avatar(photo, selected)
         Column(Modifier.weight(1f).clearAndSetSemantics { }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("#${ticket.id}  ${ticket.status.orEmpty()}", style = MaterialTheme.typography.labelLarge)
             if (snooze != null && note != null) {
@@ -96,7 +100,7 @@ fun TicketItem(
 
 /** O avatar do solicitante: a foto da lista, ou o ícone de pessoa enquanto não há (ou não baixou). */
 @Composable
-private fun Avatar(photo: String?) {
+private fun Avatar(photo: String?, checked: Boolean) {
     val bitmap = remember(photo) {
         photo?.let { path -> runCatching { BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull() }
     }
@@ -104,7 +108,11 @@ private fun Avatar(photo: String?) {
         Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
-        if (bitmap != null) {
+        if (checked) {
+            Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
+            }
+        } else if (bitmap != null) {
             Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(40.dp))
         } else {
             Icon(Icons.Filled.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
