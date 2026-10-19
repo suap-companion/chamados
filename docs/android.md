@@ -198,3 +198,7 @@ Os filtros de cada aba (Ativos, Adiados, Arquivados) mostram um selo com quantos
 ## Listagem no padrão gov.br: Lista, Item e Loading (#119)
 
 A lista de chamados usa o padrão do Design System: itens (`br-item`) numa lista (`br-list`) com divisores finos, padding de 16 dp, alvo de toque de 48 dp, avatar redondo e um único alvo de leitor de tela por item ("chamado 5, Aberto, título…"); o estado "selecionado" já existe (para a seleção em lote, #122). Na primeira carga de uma aba, o **skeleton screen** (mesma forma dos itens, barras que pulsam, parado se o sistema reduz animações) substitui o círculo de progresso; com itens na tela, o puxar para atualizar basta. Vazio e erro têm mensagem curta, e o erro, a ação "Tentar de novo". Código em `TicketList.kt`. O avatar mostra a foto de quem pediu, que vem na própria lista do SUAP (`TicketSummary.photo`) e é baixada uma vez e guardada no aparelho (`ticket_photo`); sem foto, ou sendo a padrão, fica o ícone de pessoa.
+
+## Paginação infinita (#123)
+
+Ao rolar até perto do fim da lista, o app carrega a página seguinte do SUAP (com o skeleton no rodapé enquanto carrega), sem repetir chamados e mantendo a aba, a situação e a busca. Páginas em que tudo já estava na lista, ou estava arquivado/adiado, não contam: o app tenta as seguintes (até 5 seguidas); uma página vazia, ou recusada por estar além do fim, encerra a lista com "Fim da lista." Atualizar a lista (puxar, trocar de aba, situação ou perfil) volta à primeira página.
