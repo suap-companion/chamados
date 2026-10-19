@@ -401,7 +401,12 @@ private fun Details(model: MainViewModel, view: TicketView) {
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { DetailHeader(model, view) }
         item { ActionsSection(model, view) }
-        items(view.fields) { field -> FieldItem(field) }
+        val interested = view.fields.firstOrNull { it.label.trim().trimEnd(':').equals("Interessado", ignoreCase = true) }
+        val sector = view.fields.firstOrNull { it.label.trim().trimEnd(':').equals("Setor atual", ignoreCase = true) }
+        val photo = view.photo?.let { model.photoFiles[it] }
+        items(view.fields.filter { interested == null || it !== sector }) { field ->
+            if (field === interested) InterestedItem(field.value, sector?.value, photo) else FieldItem(field)
+        }
         if (view.attachments.isNotEmpty()) {
             item { Text("Anexos", style = MaterialTheme.typography.titleMedium) }
             items(view.attachments) { attachment ->

@@ -212,6 +212,8 @@ pub struct TicketView {
     pub fields: Vec<TicketField>,
     pub timeline: Vec<TimelineItem>,
     pub attachments: Vec<AttachmentItem>,
+    /// O caminho da foto do interessado no SUAP (para `ticket_photo`); `None` sem foto.
+    pub photo: Option<String>,
     pub url: String,
 }
 
@@ -449,6 +451,7 @@ impl Chamados {
             title: details.title,
             heading: details.heading,
             statuses: details.statuses,
+            photo: details.interested_photo,
             fields: details
                 .fields
                 .into_iter()

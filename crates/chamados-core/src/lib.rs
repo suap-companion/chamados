@@ -103,6 +103,8 @@ pub struct TicketDetails {
     pub timeline: Vec<TimelineEntry>,
     /// Files attached to the ticket, in the order the timeline lists them.
     pub attachments: Vec<AttachmentLink>,
+    /// O caminho da foto do interessado (a do bloco da pessoa; sem a foto padrão), no mesmo SUAP.
+    pub interested_photo: Option<String>,
     pub details_url: String,
 }
 
@@ -1006,6 +1008,12 @@ pub fn parse_ticket_details(html: &str, base_url: &Url, id: &str) -> Option<Tick
         }
     }
 
+    let interested_photo = document
+        .select(&selector("main#content .person .photo-circle img"))
+        .next()
+        .and_then(|image| image.value().attr("src"))
+        .and_then(|source| profile::same_site_path(source, base_url));
+
     Some(TicketDetails {
         id: id.to_owned(),
         title,
@@ -1014,6 +1022,7 @@ pub fn parse_ticket_details(html: &str, base_url: &Url, id: &str) -> Option<Tick
         fields,
         timeline,
         attachments,
+        interested_photo,
         details_url: base_url
             .join(&format!("{TICKET_PATH_PREFIX}{id}/"))
             .expect("ticket path is valid")
@@ -1043,6 +1052,7 @@ mod tests {
     "#;
 
     const DETAILS: &str = r#"<main id="content">
+        <div class="person"><div class="photo-circle"><img src="/media/fotos/w.jpg" alt="Foto"></div></div>
         <div class="title-container"><h2>Chamado Interno 559298</h2>
           <div class="object-status"><span class="status status-em-atendimento ">Em atendimento</span>
           <span class="status status-error">Tempo previsto ultrapassado</span></div></div>
@@ -2174,6 +2184,27 @@ mod tests {
                 tickets[1].status.clone()
             ),
             ("1", None, None)
+        );
+    }
+
+    #[test]
+    fn reads_the_photo_of_the_interested() {
+        let photo = |html: &str| {
+            parse_ticket_details(html, &base(), "1")
+                .unwrap()
+                .interested_photo
+        };
+        assert_eq!(photo(DETAILS), Some("/media/fotos/w.jpg".to_owned()));
+        // The default picture, a photo from another server and a page without the person: no photo.
+        let default = DETAILS.replace("/media/fotos/w.jpg", "/static/comum/img/default.jpg");
+        assert_eq!(photo(&default), None);
+        assert_eq!(
+            photo(&DETAILS.replace("/media/fotos/w.jpg", "https://outro.example/w.jpg")),
+            None
+        );
+        assert_eq!(
+            photo(&DETAILS.replace("class=\"person\"", "class=\"other\"")),
+            None
         );
     }
 

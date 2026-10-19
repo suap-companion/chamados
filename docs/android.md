@@ -218,3 +218,7 @@ O cabeçalho do detalhe segue o DS: o **título local é o H1** (sem título, o 
 ## Ações em menus suspensos (#131)
 
 Os botões do detalhe viraram três menus suspensos logo abaixo do título e da situação (`Actions.kt`): **Ações** (as da situação atual: assumir, iniciar, comentar, nota interna, anexar, resolver, suspender, cancelar, reabrir, fechar), **Gestão** (atribuir, escalar, devolver, reclassificar, tags e interessados) e **Mais** (o que é só seu: arquivar/desarquivar, adiar, alterar ou cancelar o adiamento e exportar como ZIP). Cada ação mantém a confirmação, os diálogos e o resultado de antes; o resultado da última ação aparece abaixo dos menus. A tela abre direto no conteúdo.
+
+## Interessado com foto, nome e setor (#130)
+
+No detalhe, o interessado aparece como no cabeçalho da conta: avatar redondo com a **foto**, ao lado o **nome usual** e, abaixo, o **setor** (`InterestedItem`). Tudo vem da página do chamado no SUAP: a foto é a do bloco da pessoa (`.person .photo-circle img`, lida em `TicketDetails.interested_photo`, só do mesmo SUAP e sem a foto padrão), o nome é o campo "Interessado" e o setor é o campo "Setor atual" (o SUAP não tem um campo "campus" separado nessa página). A foto é baixada uma vez e guardada no aparelho (`ticket_photo`); sem foto, fica o ícone de pessoa.
