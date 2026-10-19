@@ -74,6 +74,36 @@ pub struct TimelineEntry {
     pub text: String,
 }
 
+/// What a thread entry of a ticket is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryKind {
+    /// A public comment.
+    Comment,
+    /// An internal note (only the service team sees them).
+    Note,
+    /// Something that happened: a status change, an assignment, an automatic message, a rating.
+    Event,
+    /// A file attached to the ticket.
+    Attachment,
+}
+
+/// One entry of the ticket thread (timeline or internal notes), with who wrote it and the kind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadEntry {
+    pub kind: EntryKind,
+    /// The date as SUAP shows it (`dd/mm/aaaa hh:mm:ss`).
+    pub date: String,
+    /// The date as `aaaa-mm-dd hh:mm:ss`, to sort entries of different lists together; empty when the
+    /// date is not in the usual format.
+    pub sort_key: String,
+    /// Who wrote it (the name on the photo), when the entry has an author.
+    pub author: Option<String>,
+    /// The path of the author's photo in the same SUAP (never the default picture).
+    pub photo: Option<String>,
+    /// The text without the heading ("X comentou:").
+    pub body: String,
+}
+
 /// A file attached to a ticket, as linked from its timeline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachmentLink {
@@ -81,6 +111,8 @@ pub struct AttachmentLink {
     pub name: String,
     /// Path of the download link, relative to the SUAP address.
     pub path: String,
+    /// Who attached it and when, as the attachments tab says ("Ana em 06/10/2026 19:14").
+    pub by: Option<String>,
 }
 
 /// A downloaded attachment.
@@ -101,6 +133,10 @@ pub struct TicketDetails {
     pub statuses: Vec<String>,
     pub fields: Vec<(String, String)>,
     pub timeline: Vec<TimelineEntry>,
+    /// The same timeline with the kind and author of each entry (comments, events, attachments).
+    pub thread: Vec<ThreadEntry>,
+    /// The internal notes; `None` when the page has no notes tab (people outside the service team).
+    pub notes: Option<Vec<ThreadEntry>>,
     /// Files attached to the ticket, in the order the timeline lists them.
     pub attachments: Vec<AttachmentLink>,
     /// O caminho da foto do interessado (a do bloco da pessoa; sem a foto padrão), no mesmo SUAP.
@@ -706,6 +742,68 @@ fn parse_ticket(element: ElementRef<'_>, base_url: &Url) -> Option<RemoteTicket>
     })
 }
 
+/// `dd/mm/aaaa hh:mm:ss` as `aaaa-mm-dd hh:mm:ss` (empty when the date is not in that format).
+fn sort_key(date: &str) -> String {
+    let Some((day, rest)) = date.split_once('/') else {
+        return String::new();
+    };
+    let Some((month, rest)) = rest.split_once('/') else {
+        return String::new();
+    };
+    let Some((year, time)) = rest.split_once(' ') else {
+        return String::new();
+    };
+    format!("{year}-{month}-{day} {time}")
+}
+
+/// One entry of the timeline or of the internal notes: its kind (a note in the notes tab; in the
+/// timeline, an attachment or an event in the observation items, a comment when the heading says the
+/// person commented, an event otherwise), author, photo and the text without the heading. Items
+/// without date or content (the "add a comment" form) are not entries.
+fn thread_entry(item: ElementRef<'_>, base_url: &Url, note: bool) -> Option<ThreadEntry> {
+    let date = flat_text(item.select(&selector(".timeline-date")).next()?);
+    let content = item.select(&selector(".timeline-content")).next()?;
+    let text = rich_text(content);
+    let heading = content
+        .select(&selector("h4"))
+        .next()
+        .map(flat_text)
+        .unwrap_or_default();
+    let attached = content.select(&selector("a[href]")).any(|link| {
+        let path = link.value().attr("href").unwrap_or_default();
+        path.starts_with(ATTACHMENT_PATH_PREFIX)
+    });
+    let observation = item.value().classes().any(|class| class == "obs");
+    let kind = match (note, observation, attached, heading.contains("comentou")) {
+        (true, ..) => EntryKind::Note,
+        (_, true, true, _) => EntryKind::Attachment,
+        (_, false, _, true) => EntryKind::Comment,
+        _ => EntryKind::Event,
+    };
+    let person = item.select(&selector(".timeline-photo")).next();
+    let author = person
+        .and_then(|person| person.value().attr("title"))
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
+    let photo = person
+        .and_then(|person| person.select(&selector("img")).next())
+        .and_then(|image| image.value().attr("src"))
+        .and_then(|source| profile::same_site_path(source, base_url));
+    let body = text
+        .strip_prefix(heading.as_str())
+        .unwrap_or(&text)
+        .trim()
+        .to_owned();
+    Some(ThreadEntry {
+        kind,
+        sort_key: sort_key(&date),
+        date,
+        author,
+        photo,
+        body,
+    })
+}
+
 fn text_of(element: ElementRef<'_>) -> String {
     element.text().collect::<String>().trim().to_owned()
 }
@@ -995,8 +1093,23 @@ pub fn parse_ticket_details(html: &str, base_url: &Url, id: &str) -> Option<Tick
         })
         .collect();
 
+    let thread = document
+        .select(&selector("[data-tab=linha_tempo] ul.timeline > li"))
+        .filter_map(|item| thread_entry(item, base_url, false))
+        .collect();
+    let notes_pane = document
+        .select(&selector("[data-tab=notas_internas]"))
+        .next();
+    let notes = notes_pane.map(|pane| {
+        pane.select(&selector("ul.timeline > li"))
+            .filter_map(|item| thread_entry(item, base_url, true))
+            .collect()
+    });
+
     let mut attachments: Vec<AttachmentLink> = Vec::new();
-    let links = selector("[data-tab=linha_tempo] ul.timeline > li .timeline-content a[href]");
+    let links = selector(
+        "[data-tab=linha_tempo] ul.timeline > li .timeline-content a[href], [data-tab=anexos] tbody a[href]",
+    );
     for link in document.select(&links) {
         let path = link.value().attr("href").unwrap_or_default();
         let known = attachments.iter().any(|known| known.path == path);
@@ -1004,7 +1117,22 @@ pub fn parse_ticket_details(html: &str, base_url: &Url, id: &str) -> Option<Tick
             attachments.push(AttachmentLink {
                 name: flat_text(link),
                 path: path.to_owned(),
+                by: None,
             });
+        }
+    }
+    // The attachments tab says who attached each file and when (third cell of the row).
+    for row in document.select(&selector("[data-tab=anexos] tbody tr")) {
+        let path = row
+            .select(&selector("a[href]"))
+            .next()
+            .and_then(|link| link.value().attr("href"));
+        let by = row.select(&selector("td")).nth(2).map(flat_text);
+        for attachment in attachments
+            .iter_mut()
+            .filter(|a| Some(a.path.as_str()) == path)
+        {
+            attachment.by = by.clone();
         }
     }
 
@@ -1021,6 +1149,8 @@ pub fn parse_ticket_details(html: &str, base_url: &Url, id: &str) -> Option<Tick
         statuses,
         fields,
         timeline,
+        thread,
+        notes,
         attachments,
         interested_photo,
         details_url: base_url
@@ -2187,6 +2317,91 @@ mod tests {
         );
     }
 
+    /// A ticket page as SUAP renders it: comment, automatic message, observation items (status
+    /// change and attachment), the internal notes tab and the attachments tab.
+    const THREAD: &str = r#"<main id="content">
+        <div class="title-container"><h2>Chamado 9</h2></div>
+        <div data-tab="linha_tempo"><ul class="timeline with-photos">
+          <li><div class="timeline-content"><h4>Adicionar comentário:</h4></div></li>
+          <li><div class="timeline-date">13/10/2026 18:30:00</div>
+            <div class="timeline-photo" title="Ana Souza"><img src="/media/fotos/ana.jpg"></div>
+            <div class="timeline-content"><h4>Ana <small>comentou:</small></h4><p>Olá.</p></div></li>
+          <li><div class="timeline-date">13/10/2026 18:20:00</div><div class="timeline-icon"></div>
+            <div class="timeline-content"><h4>Mensagem automática:</h4><p>Bem-vindo.</p></div></li>
+          <li class="obs"><div class="timeline-date">13/10/2026 18:10:00</div>
+            <div class="timeline-photo" title=""><img src="/static/comum/img/default.jpg"></div>
+            <div class="timeline-content">Chamado Aberto por Ana</div></li>
+          <li class="obs"><div class="timeline-date">sem data boa</div>
+            <div class="timeline-content"><p>Ana adicionou o seguinte anexo:
+              <a href="/djtools/arquivo/centralservicos/chamadoanexo/1/anexo/">dados.csv</a></p></div></li>
+          <li><div class="timeline-date">13/10</div><div class="timeline-content"><p>Sem hora</p></div></li>
+          <li><div class="timeline-date">13/10/2026</div><div class="timeline-content"><p>Sem hora</p></div></li>
+        </ul></div>
+        <div data-tab="notas_internas"><ul class="timeline with-photos">
+          <li><div class="timeline-content"><h4>Adicionar Nota interna:</h4></div></li>
+          <li><div class="timeline-date">13/10/2026 18:40:00</div>
+            <div class="timeline-photo" title="Bia"><img src="/media/fotos/bia.jpg"></div>
+            <div class="timeline-content"><h4>Bia <small>comentou:</small></h4><p>Só a equipe.</p></div></li>
+        </ul></div>
+        <div data-tab="anexos"><table><tbody>
+          <tr><td>1</td><td><a href="/djtools/arquivo/centralservicos/chamadoanexo/1/anexo/">dados.csv</a></td><td>Ana em 13/10/2026</td></tr>
+          <tr><td>2</td><td><a href="/djtools/arquivo/centralservicos/chamadoanexo/2/anexo/">foto.png</a></td><td>Bia em 13/10/2026</td></tr>
+          <tr><td>3</td><td>sem link</td></tr>
+        </tbody></table></div></main>"#;
+
+    #[test]
+    fn the_thread_tells_the_kind_author_and_photo_of_each_entry() {
+        let details = parse_ticket_details(THREAD, &base(), "9").unwrap();
+        let kinds: Vec<EntryKind> = details.thread.iter().map(|entry| entry.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                EntryKind::Comment,
+                EntryKind::Event,
+                EntryKind::Event,
+                EntryKind::Attachment,
+                EntryKind::Event,
+                EntryKind::Event
+            ]
+        );
+        let comment = &details.thread[0];
+        assert_eq!(comment.author.as_deref(), Some("Ana Souza"));
+        assert_eq!(comment.photo.as_deref(), Some("/media/fotos/ana.jpg"));
+        assert_eq!(comment.body, "Olá.");
+        assert_eq!(comment.sort_key, "2026-10-13 18:30:00");
+        // No author title, the default picture, a date that is not in the usual format.
+        let opened = &details.thread[2];
+        assert_eq!((opened.author.clone(), opened.photo.clone()), (None, None));
+        assert_eq!(opened.body, "Chamado Aberto por Ana");
+        assert_eq!(details.thread[3].sort_key, "");
+        assert_eq!(details.thread[4].sort_key, "");
+        assert_eq!(details.thread[5].sort_key, "");
+        // The internal notes come apart, with their own kind.
+        let notes = details.notes.unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(
+            (
+                notes[0].kind,
+                notes[0].author.as_deref(),
+                notes[0].body.as_str()
+            ),
+            (EntryKind::Note, Some("Bia"), "Só a equipe.")
+        );
+        // The attachments tab says who attached each file; a page without the tabs has no notes.
+        let by: Vec<Option<String>> = details.attachments.iter().map(|a| a.by.clone()).collect();
+        assert_eq!(
+            by,
+            [
+                Some("Ana em 13/10/2026".to_owned()),
+                Some("Bia em 13/10/2026".to_owned())
+            ]
+        );
+        assert_eq!(
+            parse_ticket_details(DETAILS, &base(), "1").unwrap().notes,
+            None
+        );
+    }
+
     #[test]
     fn reads_the_photo_of_the_interested() {
         let photo = |html: &str| {
@@ -2264,10 +2479,12 @@ mod tests {
                 AttachmentLink {
                     name: "dados.csv".to_owned(),
                     path: "/djtools/arquivo/centralservicos/chamadoanexo/1/anexo/".to_owned(),
+                    by: None,
                 },
                 AttachmentLink {
                     name: "foto.png".to_owned(),
                     path: "/djtools/arquivo/centralservicos/chamadoanexo/2/anexo/".to_owned(),
+                    by: None,
                 },
             ]
         );
@@ -2295,6 +2512,7 @@ mod tests {
         let link = |path: &str| AttachmentLink {
             name: "x".to_owned(),
             path: path.to_owned(),
+            by: None,
         };
         let bytes = source
             .download_attachment(&link(

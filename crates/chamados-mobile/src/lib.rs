@@ -188,11 +188,56 @@ pub struct TicketField {
     pub value: String,
 }
 
-/// Uma entrada da linha do tempo.
+/// O que uma entrada da linha do tempo é.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EntryKind {
+    /// Um comentário público.
+    Comment,
+    /// Uma nota interna (só a equipe de atendimento vê).
+    Note,
+    /// Algo que aconteceu: mudança de situação, atribuição, mensagem automática, avaliação.
+    Event,
+    /// Um arquivo anexado ao chamado.
+    Attachment,
+}
+
+impl From<chamados_core::EntryKind> for EntryKind {
+    fn from(kind: chamados_core::EntryKind) -> Self {
+        match kind {
+            chamados_core::EntryKind::Comment => Self::Comment,
+            chamados_core::EntryKind::Note => Self::Note,
+            chamados_core::EntryKind::Event => Self::Event,
+            chamados_core::EntryKind::Attachment => Self::Attachment,
+        }
+    }
+}
+
+/// Uma entrada da linha do tempo ou das notas internas, com quem escreveu e o tipo.
 #[derive(Debug, uniffi::Record)]
-pub struct TimelineItem {
+pub struct ThreadItem {
+    pub kind: EntryKind,
+    /// A data como o SUAP mostra (`dd/mm/aaaa hh:mm:ss`).
     pub date: String,
-    pub text: String,
+    /// A data como `aaaa-mm-dd hh:mm:ss`, para ordenar listas juntas; vazia se o formato for outro.
+    pub sort_key: String,
+    pub author: Option<String>,
+    /// O caminho da foto de quem escreveu no SUAP (para `ticket_photo`).
+    pub photo: Option<String>,
+    /// O texto sem o título ("fulano comentou:").
+    pub body: String,
+}
+
+impl From<chamados_core::ThreadEntry> for ThreadItem {
+    fn from(entry: chamados_core::ThreadEntry) -> Self {
+        Self {
+            kind: entry.kind.into(),
+            date: entry.date,
+            sort_key: entry.sort_key,
+            author: entry.author,
+            photo: entry.photo,
+            body: entry.body,
+        }
+    }
 }
 
 /// Um anexo do chamado; `number` (a partir de 1) é o que `download_attachment` pede.
@@ -200,6 +245,8 @@ pub struct TimelineItem {
 pub struct AttachmentItem {
     pub number: u32,
     pub name: String,
+    /// Quem anexou e quando ("Ana em 06/10/2026 19:14"), como a aba de anexos diz.
+    pub by: Option<String>,
 }
 
 /// O chamado por inteiro, como a página dele mostra.
@@ -210,7 +257,12 @@ pub struct TicketView {
     pub heading: Option<String>,
     pub statuses: Vec<String>,
     pub fields: Vec<TicketField>,
-    pub timeline: Vec<TimelineItem>,
+    /// A linha do tempo: comentários, acontecimentos e anexos.
+    pub thread: Vec<ThreadItem>,
+    /// As notas internas (vazia se a pessoa não as vê).
+    pub notes: Vec<ThreadItem>,
+    /// A página tem a aba de notas internas (só a equipe de atendimento a vê).
+    pub can_see_notes: bool,
     pub attachments: Vec<AttachmentItem>,
     /// O caminho da foto do interessado no SUAP (para `ticket_photo`); `None` sem foto.
     pub photo: Option<String>,
@@ -457,13 +509,13 @@ impl Chamados {
                 .into_iter()
                 .map(|(label, value)| TicketField { label, value })
                 .collect(),
-            timeline: details
-                .timeline
+            can_see_notes: details.notes.is_some(),
+            thread: details.thread.into_iter().map(ThreadItem::from).collect(),
+            notes: details
+                .notes
+                .unwrap_or_default()
                 .into_iter()
-                .map(|entry| TimelineItem {
-                    date: entry.date,
-                    text: entry.text,
-                })
+                .map(ThreadItem::from)
                 .collect(),
             attachments: details
                 .attachments
@@ -472,6 +524,7 @@ impl Chamados {
                 .map(|(index, link)| AttachmentItem {
                     number: index as u32 + 1,
                     name: link.name,
+                    by: link.by,
                 })
                 .collect(),
             url: details.details_url,
@@ -806,6 +859,20 @@ mod tests {
             assert!(offline.is_authenticated().await.is_err());
         }
 
+        #[test]
+        fn every_kind_of_entry_has_its_mobile_twin() {
+            use chamados_core::EntryKind as Core;
+            let pairs = [
+                (Core::Comment, EntryKind::Comment),
+                (Core::Note, EntryKind::Note),
+                (Core::Event, EntryKind::Event),
+                (Core::Attachment, EntryKind::Attachment),
+            ];
+            for (core, mobile) in pairs {
+                assert_eq!(EntryKind::from(core), mobile);
+            }
+        }
+
         #[tokio::test]
         async fn tickets_are_listed_shown_and_their_attachments_downloaded() {
             let server = MockServer::start().await;
@@ -921,7 +988,9 @@ mod tests {
                 r#"<main id="content"><div class="title-container"><h2>Um</h2></div>
                 <div class="accordion"><div class="accordion-body"><dl class="definition-list"><div class="list-item"><dt>Interessado</dt><dd><h4>Wagner</h4></dd></div></dl></div></div>
                 <div data-tab="linha_tempo"><ul class="timeline"><li><div class="timeline-date">1</div>
-                <div class="timeline-content"><a href="/djtools/arquivo/centralservicos/chamadoanexo/1/anexo/">a.csv</a></div></li></ul></div></main>"#,
+                <div class="timeline-content"><a href="/djtools/arquivo/centralservicos/chamadoanexo/1/anexo/">a.csv</a></div></li></ul></div>
+                <div data-tab="notas_internas"><ul class="timeline"><li><div class="timeline-date">2</div>
+                <div class="timeline-content"><h4>Bia <small>comentou:</small></h4><p>Nota.</p></div></li></ul></div></main>"#,
             )
             .await;
             page(
@@ -936,6 +1005,14 @@ mod tests {
             assert_eq!(view.attachments.len(), 1);
             assert_eq!(view.attachments[0].number, 1);
             assert_eq!(view.attachments[0].name, "a.csv");
+            assert_eq!(view.attachments[0].by, None);
+            assert_eq!(view.thread.len(), 1);
+            assert_eq!(view.thread[0].kind, EntryKind::Event);
+            assert!(view.can_see_notes);
+            assert_eq!(
+                (view.notes[0].kind, view.notes[0].body.as_str()),
+                (EntryKind::Note, "Nota.")
+            );
             assert!(view.url.contains("/chamado/7/"));
             assert!(!view.title.is_empty());
             assert_eq!(view.fields[0].label, "Interessado");
