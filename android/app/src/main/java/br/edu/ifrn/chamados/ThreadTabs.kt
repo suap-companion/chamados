@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.HorizontalDivider
@@ -40,14 +41,17 @@ fun threadTabs(view: TicketView): List<ThreadTab> =
     ThreadTab.entries.filter { it != ThreadTab.Notes || view.canSeeNotes }
 
 /** Tudo da linha do tempo: os comentários, os acontecimentos, os anexos e as notas, na mesma ordem das datas. */
-fun allEntries(view: TicketView): List<ThreadItem> =
-    (view.thread + view.notes).sortedByDescending { it.sortKey }
+fun allEntries(view: TicketView): List<ThreadItem> = view.thread + view.notes
 
-fun entriesOf(view: TicketView, tab: ThreadTab): List<ThreadItem> = when (tab) {
-    ThreadTab.All -> allEntries(view)
-    ThreadTab.Comments -> view.thread.filter { it.kind == EntryKind.COMMENT }
-    ThreadTab.Notes -> view.notes
-    ThreadTab.Attachments -> emptyList()
+/** As entradas da aba, na ordem escolhida: do mais novo ao mais antigo (`newestFirst`) ou ao contrário. */
+fun entriesOf(view: TicketView, tab: ThreadTab, newestFirst: Boolean = true): List<ThreadItem> {
+    val entries = when (tab) {
+        ThreadTab.All -> allEntries(view)
+        ThreadTab.Comments -> view.thread.filter { it.kind == EntryKind.COMMENT }
+        ThreadTab.Notes -> view.notes
+        ThreadTab.Attachments -> emptyList()
+    }
+    return if (newestFirst) entries.sortedByDescending { it.sortKey } else entries.sortedBy { it.sortKey }
 }
 
 fun countOf(view: TicketView, tab: ThreadTab): Int = when (tab) {
@@ -77,6 +81,16 @@ fun ThreadTabRow(view: TicketView, tab: ThreadTab, onTab: (ThreadTab) -> Unit) {
     }
 }
 
+/** O botão que troca a ordem das entradas (a escolha fica guardada); as abas de entradas usam a ordem. */
+@Composable
+fun OrderToggle(newestFirst: Boolean, onToggle: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        TextButton(onClick = onToggle) {
+            Text(if (newestFirst) "↓ Mais novos primeiro" else "↑ Mais antigos primeiro")
+        }
+    }
+}
+
 /** O conteúdo da aba escolhida, como itens da lista da tela. */
 fun LazyListScope.threadContent(model: MainViewModel, view: TicketView, tab: ThreadTab) {
     if (tab == ThreadTab.Attachments) {
@@ -86,7 +100,7 @@ fun LazyListScope.threadContent(model: MainViewModel, view: TicketView, tab: Thr
         items(view.attachments.size) { index -> AttachmentRow(model, view.id, view.attachments[index]) }
         return
     }
-    val entries = entriesOf(view, tab)
+    val entries = entriesOf(view, tab, model.newestFirst)
     if (entries.isEmpty()) {
         item {
             Text(

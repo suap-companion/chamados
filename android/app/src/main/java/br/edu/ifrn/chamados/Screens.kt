@@ -409,6 +409,7 @@ private fun Details(model: MainViewModel, view: TicketView) {
             if (field === interested) InterestedItem(field.value, sector?.value, photo) else FieldItem(field)
         }
         item { ThreadTabRow(view, tab) { tab = it } }
+        if (tab != ThreadTab.Attachments) item { OrderToggle(model.newestFirst, model::toggleOrder) }
         threadContent(model, view, tab)
     }
 }

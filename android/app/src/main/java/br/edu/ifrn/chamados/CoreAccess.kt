@@ -17,6 +17,14 @@ object CoreAccess {
         Profiles.changeUrl(context, url)
     }
 
+    /** A ordem da linha do tempo do chamado: do mais novo ao mais antigo (padrão) ou ao contrário. */
+    fun newestFirst(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("timeline_newest_first", true)
+
+    fun saveNewestFirst(context: Context, value: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("timeline_newest_first", value).apply()
+    }
+
     /** O número do serviço usado da última vez ao abrir um chamado. */
     fun serviceId(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("service_id", "") ?: ""

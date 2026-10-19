@@ -228,3 +228,7 @@ No detalhe, o interessado aparece como no cabeçalho da conta: avatar redondo co
 A linha do tempo do detalhe tem quatro abas, cada uma com a quantidade (`ThreadTabs.kt`): **Tudo** (comentários, acontecimentos, anexos e notas juntos, do mais novo ao mais antigo), **Comentários**, **Notas internas** e **Anexos**. A aba de notas só existe para quem é da equipe de atendimento (é quando a página do SUAP traz a aba `notas_internas`; para os demais ela some). Cada entrada mostra quem escreveu (foto e nome), o que foi (comentou, escreveu uma nota interna, anexou um arquivo ou um acontecimento, em itálico) e a data; as notas ficam em destaque. Os anexos mostram quem anexou e quando (da aba de anexos do SUAP) e baixam com um toque.
 
 No núcleo, `TicketDetails` ganhou `thread` e `notes` (com o tipo `EntryKind`, o autor, a foto, o texto sem o título e uma data ordenável) e os anexos ganharam `by`; o CLI continua usando `timeline`, que não mudou.
+
+## Ordem da linha do tempo (#133)
+
+Acima das entradas há um botão que alterna a ordem: **↓ Mais novos primeiro** (padrão, como o SUAP mostra) ou **↑ Mais antigos primeiro**. A escolha vale para todos os chamados, é guardada no aparelho (preferência `timeline_newest_first`, `CoreAccess.newestFirst`) e continua depois de fechar e abrir o app; ela se aplica às abas Tudo, Comentários e Notas internas (a aba Anexos mantém a ordem do SUAP, que não traz uma data por anexo).
