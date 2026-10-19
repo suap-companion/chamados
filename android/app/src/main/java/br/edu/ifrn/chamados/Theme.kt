@@ -10,6 +10,9 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -135,8 +138,35 @@ object GovBr {
         extraLarge = RoundedCornerShape(12.dp),
     )
 
+    /** A família do DS gov.br (SIL OFL 1.1; veja docs/licencas/Rawline-OFL.txt), nos quatro pesos do DS. */
+    val Rawline = FontFamily(
+        Font(R.font.rawline_regular, FontWeight.Normal),
+        Font(R.font.rawline_medium, FontWeight.Medium),
+        Font(R.font.rawline_semibold, FontWeight.SemiBold),
+        Font(R.font.rawline_bold, FontWeight.Bold),
+    )
+
+    /** Todos os estilos do Material 3 na Rawline. */
+    private fun Typography.inRawline() = Typography(
+        displayLarge = displayLarge.copy(fontFamily = Rawline),
+        displayMedium = displayMedium.copy(fontFamily = Rawline),
+        displaySmall = displaySmall.copy(fontFamily = Rawline),
+        headlineLarge = headlineLarge.copy(fontFamily = Rawline),
+        headlineMedium = headlineMedium.copy(fontFamily = Rawline),
+        headlineSmall = headlineSmall.copy(fontFamily = Rawline),
+        titleLarge = titleLarge.copy(fontFamily = Rawline),
+        titleMedium = titleMedium.copy(fontFamily = Rawline),
+        titleSmall = titleSmall.copy(fontFamily = Rawline),
+        bodyLarge = bodyLarge.copy(fontFamily = Rawline),
+        bodyMedium = bodyMedium.copy(fontFamily = Rawline),
+        bodySmall = bodySmall.copy(fontFamily = Rawline),
+        labelLarge = labelLarge.copy(fontFamily = Rawline),
+        labelMedium = labelMedium.copy(fontFamily = Rawline),
+        labelSmall = labelSmall.copy(fontFamily = Rawline),
+    )
+
     /** Entrelinha de 1,45 (`--font-line-height-medium`) no texto corrido; títulos em negrito médio. */
-    private val base = Typography()
+    private val base = Typography().inRawline()
     val Type = base.copy(
         titleLarge = base.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
         titleMedium = base.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
