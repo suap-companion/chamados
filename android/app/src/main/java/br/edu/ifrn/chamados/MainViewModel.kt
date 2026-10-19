@@ -35,6 +35,16 @@ private const val MAX_EMPTY_PAGES = 5
 
 enum class ListMode { Normal, Archived, Snoozed }
 
+/** As ações que valem para vários chamados de uma vez (seleção em lote). */
+enum class BatchAction(val label: String) {
+    Archive("Arquivar"),
+    Unarchive("Desarquivar"),
+    Snooze("Adiar"),
+    Comment("Comentar"),
+    Note("Nota interna"),
+    AddTags("Adicionar tags"),
+}
+
 /** Em qual tela o app está. */
 sealed interface Screen {
     data object Start : Screen
@@ -151,6 +161,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Os arquivos das fotos de quem pediu (caminho da foto no SUAP → arquivo no aparelho). */
     var photoFiles by mutableStateOf<Map<String, String>>(emptyMap())
         private set
+    /** Os chamados escolhidos para uma ação em lote (toque longo na lista); vazio = sem seleção. */
+    var selection by mutableStateOf<Set<String>>(emptySet())
+        private set
+    var batchBusy by mutableStateOf(false)
+        private set
+    /** O resumo da última ação em lote (o que deu certo e o que falhou). */
+    var batchMessage by mutableStateOf<String?>(null)
+    var batchIsError by mutableStateOf(false)
+        private set
     /** Está carregando a página seguinte da lista (rolagem até o fim). */
     var loadingMore by mutableStateOf(false)
         private set
@@ -240,6 +259,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         titles = emptyMap()
         archived = emptySet()
         counts = null
+        selection = emptySet()
         photoFiles = emptyMap()
         snoozes = emptyMap()
         listError = null
@@ -344,6 +364,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun chooseQueue(next: Queue) {
+        selection = emptySet()
         if (next != queue) counts = null
         queue = next
         if (next != Queue.SUPPORT && mode == ListMode.Normal) searchText = ""
@@ -352,9 +373,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Escolhe a situação a mostrar na aba: ativos, adiados ou arquivados. */
     fun chooseMode(next: ListMode) {
+        selection = emptySet()
         mode = next
         searchText = ""
         refresh()
+    }
+
+    /** Marca ou desmarca um chamado na seleção em lote. */
+    fun toggleSelection(id: String) {
+        selection = if (id in selection) selection - id else selection + id
+    }
+
+    /** Seleciona todos os chamados que a lista mostra agora. */
+    fun selectAll() {
+        selection = tickets.map { it.id }.toSet()
+    }
+
+    fun clearSelection() {
+        selection = emptySet()
+    }
+
+    /**
+     * Aplica uma ação a todos os chamados escolhidos, um a um; um que falha não impede os outros. Ao
+     * fim, o resumo diz quantos deram certo e por que os outros falharam, e só os que falharam ficam
+     * selecionados (para tentar de novo).
+     */
+    fun runBatch(action: BatchAction, text: String? = null, tags: List<String> = emptyList(), until: ULong? = null) {
+        val chosen = tickets.map { it.id }.filter { it in selection }
+        if (chosen.isEmpty() || batchBusy) return
+        viewModelScope.launch {
+            batchBusy = true
+            batchMessage = null
+            val failures = mutableListOf<Pair<String, String>>()
+            try {
+                val core = open()
+                for (id in chosen) {
+                    try {
+                        when (action) {
+                            BatchAction.Archive -> core.setArchived(id, true)
+                            BatchAction.Unarchive -> core.setArchived(id, false)
+                            BatchAction.Snooze -> core.snooze(id, until!!)
+                            BatchAction.Comment, BatchAction.Note -> {
+                                val kind = if (action == BatchAction.Comment) ShareKind.COMMENT else ShareKind.INTERNAL_NOTE
+                                val job = ShareJob(
+                                    kind = kind, serviceId = null, campus = null, center = null, interested = null,
+                                    ticket = id, text = text, title = null, filePaths = emptyList(), resumeFrom = 0u,
+                                )
+                                val outcome = core.applyShare(job)
+                                if (!outcome.done) failures += id to describe(outcome.steps)
+                            }
+                            BatchAction.AddTags -> core.addTags(id, tags)
+                        }
+                    } catch (error: Throwable) {
+                        failures += id to error.readable()
+                    }
+                }
+                val done = chosen.size - failures.size
+                batchIsError = failures.isNotEmpty()
+                batchMessage = buildString {
+                    append("${action.label}: $done de ${chosen.size} chamados.")
+                    failures.forEach { (id, why) -> append("\n#$id: $why") }
+                }
+                selection = failures.map { it.first }.toSet()
+                listStale = true
+                loadTitles()
+                refresh()
+            } catch (error: Throwable) {
+                batchIsError = true
+                batchMessage = error.readable()
+            } finally {
+                batchBusy = false
+            }
+        }
     }
 
     /** Os filtros da lista da aba e da situação em uso, na página pedida (`null` = a primeira). */

@@ -231,6 +231,7 @@ fun TicketsScreen(model: MainViewModel) {
                     )
                 }
             }
+            if (model.selection.isNotEmpty()) BatchBar(model)
             PullToRefreshBox(isRefreshing = model.listLoading, onRefresh = model::refresh, modifier = Modifier.fillMaxSize()) {
                 val listState = rememberLazyListState()
                 val nearEnd by remember { derivedStateOf { val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0; last >= listState.layoutInfo.totalItemsCount - 3 } }
@@ -252,7 +253,12 @@ fun TicketsScreen(model: MainViewModel) {
                             )
                         }
                         else -> items(model.tickets, key = { it.id }) { ticket ->
-                            TicketItem(ticket, model.titles[ticket.id], model.snoozes[ticket.id], photo = ticket.photo?.let { model.photoFiles[it] }) { model.openDetail(ticket.id) }
+                            TicketItem(
+                                ticket, model.titles[ticket.id], model.snoozes[ticket.id],
+                                photo = ticket.photo?.let { model.photoFiles[it] },
+                                selected = ticket.id in model.selection,
+                                onLongClick = { model.toggleSelection(ticket.id) },
+                            ) { if (model.selection.isEmpty()) model.openDetail(ticket.id) else model.toggleSelection(ticket.id) }
                             ListDivider()
                         }
                     }
@@ -264,7 +270,80 @@ fun TicketsScreen(model: MainViewModel) {
             }
         }
     }
+    model.batchMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { model.batchMessage = null },
+            title = { Text(if (model.batchIsError) "Terminou com falhas" else "Pronto") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { model.batchMessage = null }) { Text("Ok") } },
+        )
+    }
     if (newProfile) NewProfileDialog(model) { newProfile = false }
+}
+
+/** A barra de ações em lote: quantos estão escolhidos, "selecionar tudo" e as ações para todos eles. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BatchBar(model: MainViewModel) {
+    BackHandler { model.clearSelection() }
+    var asking by remember { mutableStateOf<BatchAction?>(null) }
+    var text by remember { mutableStateOf("") }
+    val count = model.selection.size
+    val busy = model.batchBusy
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = model::clearSelection) { Text("✕ Cancelar") }
+            Text(
+                if (count == 1) "1 selecionado" else "$count selecionados",
+                style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = model::selectAll) { Text("Selecionar tudo") }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (model.mode == ListMode.Archived) {
+                OutlinedButton(onClick = { model.runBatch(BatchAction.Unarchive) }, enabled = !busy) { Text("Desarquivar") }
+            } else {
+                OutlinedButton(onClick = { model.runBatch(BatchAction.Archive) }, enabled = !busy) { Text("Arquivar") }
+            }
+            OutlinedButton(onClick = { asking = BatchAction.Snooze }, enabled = !busy) { Text("Adiar") }
+            OutlinedButton(onClick = { text = ""; asking = BatchAction.Comment }, enabled = !busy) { Text("Comentar") }
+            OutlinedButton(onClick = { text = ""; asking = BatchAction.Note }, enabled = !busy) { Text("Nota interna") }
+            OutlinedButton(onClick = { text = ""; asking = BatchAction.AddTags }, enabled = !busy) { Text("Tags") }
+        }
+        if (busy) CircularProgressIndicator(Modifier.padding(top = 8.dp))
+    }
+    when (val action = asking) {
+        null -> {}
+        BatchAction.Snooze -> SnoozeDialog(
+            onPick = { until -> asking = null; model.runBatch(BatchAction.Snooze, until = until) },
+            onDismiss = { asking = null },
+        )
+        else -> AlertDialog(
+            onDismissRequest = { asking = null },
+            title = { Text("${action.label} em $count chamado${if (count == 1) "" else "s"}") },
+            text = {
+                OutlinedTextField(
+                    value = text, onValueChange = { text = it }, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(if (action == BatchAction.AddTags) "Tags (separe por vírgula)" else "Texto") },
+                    minLines = if (action == BatchAction.AddTags) 1 else 3,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = text.isNotBlank(),
+                    onClick = {
+                        asking = null
+                        if (action == BatchAction.AddTags) {
+                            model.runBatch(action, tags = text.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() })
+                        } else {
+                            model.runBatch(action, text = text.trim())
+                        }
+                    },
+                ) { Text("Enviar a $count") }
+            },
+            dismissButton = { TextButton(onClick = { asking = null }) { Text("Voltar") } },
+        )
+    }
 }
 
 /** Cadastra um perfil (ambiente): o nome e o endereço do SUAP; passa a usá-lo e pede o login dele. */

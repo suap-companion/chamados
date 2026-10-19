@@ -75,7 +75,7 @@ fun SnoozeSection(model: MainViewModel, id: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SnoozeDialog(onPick: (ULong) -> Unit, onDismiss: () -> Unit) {
+fun SnoozeDialog(onPick: (ULong) -> Unit, onDismiss: () -> Unit) {
     var custom by remember { mutableStateOf(false) }
     if (custom) {
         CustomMoment(onPick = onPick, onDismiss = onDismiss)

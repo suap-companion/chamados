@@ -202,3 +202,7 @@ A lista de chamados usa o padrão do Design System: itens (`br-item`) numa lista
 ## Paginação infinita (#123)
 
 Ao rolar até perto do fim da lista, o app carrega a página seguinte do SUAP (com o skeleton no rodapé enquanto carrega), sem repetir chamados e mantendo a aba, a situação e a busca. Páginas em que tudo já estava na lista, ou estava arquivado/adiado, não contam: o app tenta as seguintes (até 5 seguidas); uma página vazia, ou recusada por estar além do fim, encerra a lista com "Fim da lista." Atualizar a lista (puxar, trocar de aba, situação ou perfil) volta à primeira página.
+
+## Seleção em lote (#122)
+
+Um toque longo num chamado da lista inicia a seleção (o avatar vira um visto e o item fica realçado); com a seleção ativa, um toque marca ou desmarca, e a voltar do sistema cancela. A barra de ações mostra quantos estão escolhidos, "Selecionar tudo" e as ações para todos eles: **Arquivar** (ou **Desarquivar**, nos arquivados), **Adiar**, **Comentar**, **Nota interna** e **Tags**. As ações rodam um chamado por vez; um que falha não impede os outros. Ao terminar, um resumo diz quantos deram certo e o motivo de cada falha, e só os que falharam continuam selecionados, para tentar de novo. A seleção some ao trocar de aba, de situação ou de perfil.
