@@ -158,6 +158,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Quantos chamados a aba tem em cada situação (os selos dos filtros); `null` até a primeira contagem. */
     var counts by mutableStateOf<ListCounts?>(null)
         private set
+    /** A ordem da linha do tempo, lembrada entre as aberturas do app: `true` = do mais novo ao mais antigo. */
+    var newestFirst by mutableStateOf(CoreAccess.newestFirst(application))
+        private set
+
+    fun toggleOrder() {
+        newestFirst = !newestFirst
+        CoreAccess.saveNewestFirst(getApplication(), newestFirst)
+    }
+
     /** Os arquivos das fotos de quem pediu (caminho da foto no SUAP → arquivo no aparelho). */
     var photoFiles by mutableStateOf<Map<String, String>>(emptyMap())
         private set
