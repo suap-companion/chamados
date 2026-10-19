@@ -214,3 +214,7 @@ O app usa a **Rawline**, a família tipográfica do Design System gov.br, nos qu
 ## Detalhe do chamado no padrão do DS gov.br (#129)
 
 O cabeçalho do detalhe segue o DS: o **título local é o H1** (sem título, o H1 é o tipo do chamado); com título, o **tipo vem abaixo, em itálico**; ao lado do H1 há o botão de **editar o título**, que abre um diálogo para salvar, remover (texto vazio) ou desistir; a situação é uma etiqueta colorida (`br-tag`) e os dados do chamado são itens com rótulo pequeno, valor e divisor fino (`DetailHeader.kt`). O campo e o botão "Título local" deixaram de existir.
+
+## Ações em menus suspensos (#131)
+
+Os botões do detalhe viraram três menus suspensos logo abaixo do título e da situação (`Actions.kt`): **Ações** (as da situação atual: assumir, iniciar, comentar, nota interna, anexar, resolver, suspender, cancelar, reabrir, fechar), **Gestão** (atribuir, escalar, devolver, reclassificar, tags e interessados) e **Mais** (o que é só seu: arquivar/desarquivar, adiar, alterar ou cancelar o adiamento e exportar como ZIP). Cada ação mantém a confirmação, os diálogos e o resultado de antes; o resultado da última ação aparece abaixo dos menus. A tela abre direto no conteúdo.

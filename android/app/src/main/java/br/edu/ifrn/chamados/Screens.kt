@@ -400,9 +400,8 @@ fun DetailScreen(model: MainViewModel, id: String) {
 private fun Details(model: MainViewModel, view: TicketView) {
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { DetailHeader(model, view) }
-        items(view.fields) { field -> FieldItem(field) }
-        item { LocalControls(model, view.id) }
         item { ActionsSection(model, view) }
+        items(view.fields) { field -> FieldItem(field) }
         if (view.attachments.isNotEmpty()) {
             item { Text("Anexos", style = MaterialTheme.typography.titleMedium) }
             items(view.attachments) { attachment ->
@@ -422,36 +421,6 @@ private fun Details(model: MainViewModel, view: TicketView) {
                     HorizontalDivider(Modifier.padding(top = 8.dp))
                 }
             }
-        }
-    }
-}
-
-/** O que é só seu no chamado (o SUAP não tem): arquivar, adiar e exportar. */
-@Composable
-private fun LocalControls(model: MainViewModel, id: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        val isArchived = id in model.archived
-        OutlinedButton(onClick = { model.setArchived(id, !isArchived) }) {
-            Text(if (isArchived) "Desarquivar" else "Arquivar (só no app e na sincronização)")
-        }
-        SnoozeSection(model, id)
-        var asking by remember(id) { mutableStateOf(false) }
-        OutlinedButton(onClick = { asking = true }, enabled = !model.exporting) {
-            Text(if (model.exporting) "Gerando o ZIP…" else "Exportar como ZIP")
-        }
-        if (asking) {
-            AlertDialog(
-                onDismissRequest = { asking = false },
-                title = { Text("Exportar o chamado #$id") },
-                text = { Text("O ZIP leva o texto (chamado.md), os dados (chamado.json) e, se quiser, os anexos. Depois você escolhe para onde enviá-lo.") },
-                confirmButton = { TextButton(onClick = { asking = false; model.exportTicket(id, true) }) { Text("Com anexos") } },
-                dismissButton = {
-                    Row {
-                        TextButton(onClick = { asking = false; model.exportTicket(id, false) }) { Text("Sem anexos") }
-                        TextButton(onClick = { asking = false }) { Text("Cancelar") }
-                    }
-                },
-            )
         }
     }
 }

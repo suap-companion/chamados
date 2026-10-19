@@ -43,36 +43,6 @@ fun formatMoment(millis: ULong): String =
 /** O fuso do aparelho em minutos a leste de UTC (o que a biblioteca Rust pede para calcular os atalhos). */
 private fun deviceOffsetMinutes(): Int = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000
 
-/** Adiar o chamado (como no Spark): atalhos de data ou uma data e hora; mudar ou cancelar o adiamento. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun SnoozeSection(model: MainViewModel, id: String) {
-    val context = LocalContext.current
-    val current = model.snoozes[id]?.takeIf { !it.due }
-    var choosing by remember(id) { mutableStateOf(false) }
-    // Os avisos de "voltou" são notificações: pede a permissão na primeira vez que se adia algo.
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-
-    fun chosen(until: ULong) {
-        choosing = false
-        model.snooze(id, until)
-        if (!Watcher.canNotify(context)) permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (current != null) {
-            Text("Adiado até ${formatMoment(current.until)}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { choosing = true }) { Text("Alterar a data") }
-                OutlinedButton(onClick = { model.unsnooze(id) }) { Text("Cancelar adiamento") }
-            }
-        } else {
-            OutlinedButton(onClick = { choosing = true }) { Text("Adiar… (volta sozinho depois)") }
-        }
-    }
-    if (choosing) SnoozeDialog(onPick = ::chosen, onDismiss = { choosing = false })
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SnoozeDialog(onPick: (ULong) -> Unit, onDismiss: () -> Unit) {
