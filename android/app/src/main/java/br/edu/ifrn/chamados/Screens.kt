@@ -402,11 +402,10 @@ private fun Details(model: MainViewModel, view: TicketView) {
         item { DetailHeader(model, view) }
         item { ActionsSection(model, view) }
         val interested = view.fields.firstOrNull { it.label.trim().trimEnd(':').equals("Interessado", ignoreCase = true) }
-        val campusField = view.fields.firstOrNull { it.label.trim().trimEnd(':').equals("Campus", ignoreCase = true) }
-        val campus = campusField?.value
-        val photo = model.tickets.firstOrNull { it.id == view.id }?.photo?.let { model.photoFiles[it] }
-        items(view.fields.filter { interested == null || it !== campusField }) { field ->
-            if (field === interested) InterestedItem(field.value, campus, photo) else FieldItem(field)
+        val sector = view.fields.firstOrNull { it.label.trim().trimEnd(':').equals("Setor atual", ignoreCase = true) }
+        val photo = view.photo?.let { model.photoFiles[it] }
+        items(view.fields.filter { interested == null || it !== sector }) { field ->
+            if (field === interested) InterestedItem(field.value, sector?.value, photo) else FieldItem(field)
         }
         if (view.attachments.isNotEmpty()) {
             item { Text("Anexos", style = MaterialTheme.typography.titleMedium) }
