@@ -206,3 +206,7 @@ Ao rolar até perto do fim da lista, o app carrega a página seguinte do SUAP (c
 ## Seleção em lote (#122)
 
 Um toque longo num chamado da lista inicia a seleção (o avatar vira um visto e o item fica realçado); com a seleção ativa, um toque marca ou desmarca, e a voltar do sistema cancela. A barra de ações mostra quantos estão escolhidos, "Selecionar tudo" e as ações para todos eles: **Arquivar** (ou **Desarquivar**, nos arquivados), **Adiar**, **Comentar**, **Nota interna** e **Tags**. As ações rodam um chamado por vez; um que falha não impede os outros. Ao terminar, um resumo diz quantos deram certo e o motivo de cada falha, e só os que falharam continuam selecionados, para tentar de novo. A seleção some ao trocar de aba, de situação ou de perfil.
+
+## Fonte Rawline (#124)
+
+O app usa a **Rawline**, a família tipográfica do Design System gov.br, nos quatro pesos do DS (400 Regular, 500 Medium, 600 SemiBold e 700 Bold), aplicada a todos os estilos do tema (`Theme.kt`, `GovBr.Rawline`). Os arquivos `.ttf` (em `android/app/src/main/res/font/`) vieram do CDN oficial do DS (`cdngovbr-ds.estaleiro.serpro.gov.br/design-system/fonts/rawline/`; o pacote npm `@govbr-ds/core` só referencia o CDN). A Rawline é distribuída sob a **SIL Open Font License 1.1** (Copyright 2016 Henrique Ibaldo, Reserved Font Name RAWLINE): ela permite embutir e redistribuir a fonte, desde que o aviso e a licença acompanhem as cópias (`docs/licencas/Rawline-OFL.txt`) e que a fonte não seja vendida isoladamente nem alterada com o mesmo nome. Custo: cerca de 1 MB a mais no APK.
