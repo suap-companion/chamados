@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Central de ajuda · chamados</title>
+  <meta name="description" content="Instale e use o chamados (app Android e CLI) para a Central de Serviços do SUAP, e tire suas dúvidas.">
+  <meta name="theme-color" content="#11786C">
+  <link rel="icon" href="assets/img/icone.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/rawline-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip" href="#conteudo">Ir para o conteúdo</a>
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="brand" href="./" aria-label="chamados, central de ajuda">
+        <img src="assets/img/icone.svg" alt="" width="36" height="36"><span>chamados <small>ajuda</small></span>
+      </a>
+      <form class="search" role="search" onsubmit="return false">
+        <label class="sr" for="busca">Buscar na ajuda</label>
+        <input id="busca" type="search" placeholder="Buscar na ajuda…" autocomplete="off">
+        <ul id="resultados" class="results" hidden></ul>
+      </form>
+    </div>
+    <nav class="wrap menu" aria-label="Principal"><a href="instalar-android.html">Instalar no Android</a><a href="instalar-cli.html">Instalar o CLI</a><a href="usar-app.html">Usar o app</a><a href="usar-cli.html">Usar o CLI</a><a href="faq.html">Dúvidas</a><a href="suporte.html">Fale conosco</a></nav>
+  </header>
+  
+  <main id="conteudo" class="wrap doc">
+
+    <section class="hero-help">
+      <h1>Como podemos ajudar?</h1>
+      <p class="lead">Aqui você instala o <strong>chamados</strong>, aprende a usar o app Android e o CLI e resolve as dúvidas mais comuns. Versão mais recente: <strong data-version>…</strong>.</p>
+    </section>
+
+    <section aria-labelledby="comece">
+      <h2 id="comece">Comece por aqui</h2>
+      <ol class="steps">
+        <li><strong>Instale.</strong> No celular, <a href="instalar-android.html">instale o app Android</a>. No computador, <a href="instalar-cli.html">instale o CLI</a>.</li>
+        <li><strong>Entre.</strong> No app, o login é o do próprio SUAP (funciona com gov.br). No CLI, <code>chamados login</code>.</li>
+        <li><strong>Organize.</strong> Dê títulos, arquive e adie chamados, e deixe o app avisar o que muda. Veja o <a href="usar-app.html">guia do app</a>.</li>
+      </ol>
+    </section>
+
+    <section aria-labelledby="temas">
+      <h2 id="temas">Temas</h2>
+      <div class="cards">
+        <a class="tile" href="instalar-android.html"><h3>Instalar no Android</h3><p>Baixar o APK, permitir a instalação e entrar.</p></a>
+        <a class="tile" href="instalar-cli.html"><h3>Instalar o CLI</h3><p>Windows, Linux e macOS, e os primeiros comandos.</p></a>
+        <a class="tile" href="usar-app.html"><h3>Usar o app</h3><p>Lista, abrir chamado, arquivar, adiar, avisos, compartilhar e mais.</p></a>
+        <a class="tile" href="usar-cli.html"><h3>Usar o CLI</h3><p>Listar, atender, exportar para a IA e acompanhar mudanças.</p></a>
+        <a class="tile" href="faq.html"><h3>Dúvidas e problemas</h3><p>Sessão expirada, avisos que não chegam, anexo recusado…</p></a>
+        <a class="tile" href="privacidade.html"><h3>Privacidade e segurança</h3><p>O que fica no aparelho e o que vai para o SUAP.</p></a>
+        <a class="tile" href="suporte.html"><h3>Fale conosco e novidades</h3><p>Como relatar um problema e o que mudou em cada versão.</p></a>
+      </div>
+    </section>
+
+  </main>
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <p>O chamados <strong>não é um projeto oficial</strong> do IFRN nem do SUAP. · <a href="https://suap-companion.github.io/">suap-companion</a></p>
+      <nav aria-label="Rodapé">
+        <a href="privacidade.html">Privacidade</a>
+        <a href="https://github.com/suap-companion/chamados">Código</a>
+        <a href="https://github.com/suap-companion/chamados/issues">Relatar um problema</a>
+        <a href="assets/fonts/Rawline-OFL.txt">Licença da fonte</a>
+      </nav>
+    </div>
+  </footer>
+  <script src="assets/site.js" defer></script>
+</body>
+</html>

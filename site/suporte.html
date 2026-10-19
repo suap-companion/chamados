@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fale conosco e novidades · chamados</title>
+  <meta name="description" content="Como relatar um problema ou sugerir uma melhoria, e o que mudou em cada versão do chamados.">
+  <meta name="theme-color" content="#11786C">
+  <link rel="icon" href="assets/img/icone.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/rawline-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip" href="#conteudo">Ir para o conteúdo</a>
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="brand" href="./" aria-label="chamados, central de ajuda">
+        <img src="assets/img/icone.svg" alt="" width="36" height="36"><span>chamados <small>ajuda</small></span>
+      </a>
+      <form class="search" role="search" onsubmit="return false">
+        <label class="sr" for="busca">Buscar na ajuda</label>
+        <input id="busca" type="search" placeholder="Buscar na ajuda…" autocomplete="off">
+        <ul id="resultados" class="results" hidden></ul>
+      </form>
+    </div>
+    <nav class="wrap menu" aria-label="Principal"><a href="instalar-android.html">Instalar no Android</a><a href="instalar-cli.html">Instalar o CLI</a><a href="usar-app.html">Usar o app</a><a href="usar-cli.html">Usar o CLI</a><a href="faq.html">Dúvidas</a><a href="suporte.html" aria-current="page">Fale conosco</a></nav>
+  </header>
+  <nav class="crumbs wrap" aria-label="Você está em"><a href="./">Central de ajuda</a> › <span>Fale conosco e novidades</span></nav>
+  <main id="conteudo" class="wrap doc">
+
+    <h1>Fale conosco</h1>
+    <p class="lead">O chamados é um projeto pessoal e aberto. O melhor jeito de pedir ajuda, relatar um problema ou sugerir uma melhoria é abrir uma <em>issue</em> no GitHub.</p>
+    <p><a class="btn" href="https://github.com/suap-companion/chamados/issues/new">Abrir um relato</a></p>
+
+    <h2>O que escrever</h2>
+    <ul class="ticks">
+      <li>Se é o <strong>app</strong> ou o <strong>CLI</strong>, e a <strong>versão</strong> (<code>chamados --version</code> ou nas Configurações do Android › Apps).</li>
+      <li>O que você <strong>fez</strong>, o que <strong>esperava</strong> e o que <strong>aconteceu</strong> (a mensagem de erro, se houver).</li>
+      <li>Uma <strong>captura de tela</strong>, se ajudar, sem dados pessoais.</li>
+    </ul>
+    <p class="callout"><strong>Nunca</strong> inclua senha, cookies, chaves de sincronização, o QR de pareamento nem textos de chamados com dados sensíveis.</p>
+
+    <h2 id="novidades">Novidades por versão</h2>
+    <p>Versão mais recente: <strong data-version>…</strong>. O histórico completo está nas <a href="https://github.com/suap-companion/chamados/releases">releases</a>.</p>
+    <ul id="releases" class="releases"><li>Carregando as novidades…</li></ul>
+
+  </main>
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <p>O chamados <strong>não é um projeto oficial</strong> do IFRN nem do SUAP. · <a href="https://suap-companion.github.io/">suap-companion</a></p>
+      <nav aria-label="Rodapé">
+        <a href="privacidade.html">Privacidade</a>
+        <a href="https://github.com/suap-companion/chamados">Código</a>
+        <a href="https://github.com/suap-companion/chamados/issues">Relatar um problema</a>
+        <a href="assets/fonts/Rawline-OFL.txt">Licença da fonte</a>
+      </nav>
+    </div>
+  </footer>
+  <script src="assets/site.js" defer></script>
+</body>
+</html>

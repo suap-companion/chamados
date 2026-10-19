@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Instalar o CLI · chamados</title>
+  <meta name="description" content="Baixe o chamados para Windows, Linux ou macOS e faça o primeiro login.">
+  <meta name="theme-color" content="#11786C">
+  <link rel="icon" href="assets/img/icone.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/rawline-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip" href="#conteudo">Ir para o conteúdo</a>
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="brand" href="./" aria-label="chamados, central de ajuda">
+        <img src="assets/img/icone.svg" alt="" width="36" height="36"><span>chamados <small>ajuda</small></span>
+      </a>
+      <form class="search" role="search" onsubmit="return false">
+        <label class="sr" for="busca">Buscar na ajuda</label>
+        <input id="busca" type="search" placeholder="Buscar na ajuda…" autocomplete="off">
+        <ul id="resultados" class="results" hidden></ul>
+      </form>
+    </div>
+    <nav class="wrap menu" aria-label="Principal"><a href="instalar-android.html">Instalar no Android</a><a href="instalar-cli.html" aria-current="page">Instalar o CLI</a><a href="usar-app.html">Usar o app</a><a href="usar-cli.html">Usar o CLI</a><a href="faq.html">Dúvidas</a><a href="suporte.html">Fale conosco</a></nav>
+  </header>
+  <nav class="crumbs wrap" aria-label="Você está em"><a href="./">Central de ajuda</a> › <span>Instalar o CLI</span></nav>
+  <main id="conteudo" class="wrap doc">
+
+    <h1>Instalar o CLI</h1>
+    <p class="lead">O CLI é um programa de linha de comando, o <code>chamados</code>. Ele é um único arquivo, sem instalador.</p>
+
+    <h2>1. Baixe o seu sistema</h2>
+    <div class="downloads">
+      <a class="dl" data-asset="windows" href="https://github.com/suap-companion/chamados/releases/latest"><span class="dl-t">Windows</span><span class="dl-s">x86_64 (.zip)</span></a>
+      <a class="dl" data-asset="linux" href="https://github.com/suap-companion/chamados/releases/latest"><span class="dl-t">Linux</span><span class="dl-s">x86_64 (.tar.gz)</span></a>
+      <a class="dl" data-asset="linux-arm" href="https://github.com/suap-companion/chamados/releases/latest"><span class="dl-t">Linux ARM</span><span class="dl-s">arm64 (.tar.gz)</span></a>
+      <a class="dl" data-asset="macos" href="https://github.com/suap-companion/chamados/releases/latest"><span class="dl-t">macOS</span><span class="dl-s">Apple Silicon (.tar.gz)</span></a>
+    </div>
+
+    <h2>2. Descompacte e coloque no PATH</h2>
+    <p><strong>Windows:</strong> descompacte o <code>.zip</code> e coloque o <code>chamados.exe</code> numa pasta que esteja no PATH (ou use-o direto da pasta onde descompactou).</p>
+<pre class="term">tar -xzf chamados-*-linux-x86_64.tar.gz
+chmod +x chamados
+mkdir -p ~/.local/bin &amp;&amp; mv chamados ~/.local/bin/
+chamados --version</pre>
+    <p>No macOS, se o sistema bloquear o programa por vir da internet: <code>xattr -d com.apple.quarantine chamados</code>.</p>
+
+    <h2>3. Configure e entre</h2>
+<pre class="term"><span class="c"># uma vez: diga qual é o seu SUAP e o seu usuário</span>
+chamados profile init --base-url https://suap.ifrn.edu.br/ --username seu_usuario
+
+<span class="c"># a senha vai por variável de ambiente (nunca por argumento)</span>
+export SUAP_PASSWORD='sua_senha'          <span class="c"># PowerShell: $env:SUAP_PASSWORD = 'sua_senha'</span>
+chamados login
+
+chamados list --meus</pre>
+    <p>Só os cookies da sessão ficam salvos; a senha não. Para saber se a sessão ainda vale: <code>chamados session-status</code>.</p>
+
+    <p><a class="btn ghost" href="usar-cli.html">Próximo: usar o CLI</a></p>
+
+  </main>
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <p>O chamados <strong>não é um projeto oficial</strong> do IFRN nem do SUAP. · <a href="https://suap-companion.github.io/">suap-companion</a></p>
+      <nav aria-label="Rodapé">
+        <a href="privacidade.html">Privacidade</a>
+        <a href="https://github.com/suap-companion/chamados">Código</a>
+        <a href="https://github.com/suap-companion/chamados/issues">Relatar um problema</a>
+        <a href="assets/fonts/Rawline-OFL.txt">Licença da fonte</a>
+      </nav>
+    </div>
+  </footer>
+  <script src="assets/site.js" defer></script>
+</body>
+</html>
