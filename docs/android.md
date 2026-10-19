@@ -210,3 +210,7 @@ Um toque longo num chamado da lista inicia a seleção (o avatar vira um visto e
 ## Fonte Rawline (#124)
 
 O app usa a **Rawline**, a família tipográfica do Design System gov.br, nos quatro pesos do DS (400 Regular, 500 Medium, 600 SemiBold e 700 Bold), aplicada a todos os estilos do tema (`Theme.kt`, `GovBr.Rawline`). Os arquivos `.ttf` (em `android/app/src/main/res/font/`) vieram do CDN oficial do DS (`cdngovbr-ds.estaleiro.serpro.gov.br/design-system/fonts/rawline/`; o pacote npm `@govbr-ds/core` só referencia o CDN). A Rawline é distribuída sob a **SIL Open Font License 1.1** (Copyright 2016 Henrique Ibaldo, Reserved Font Name RAWLINE): ela permite embutir e redistribuir a fonte, desde que o aviso e a licença acompanhem as cópias (`docs/licencas/Rawline-OFL.txt`) e que a fonte não seja vendida isoladamente nem alterada com o mesmo nome. Custo: cerca de 1 MB a mais no APK.
+
+## Detalhe do chamado no padrão do DS gov.br (#129)
+
+O cabeçalho do detalhe segue o DS: o **título local é o H1** (sem título, o H1 é o tipo do chamado); com título, o **tipo vem abaixo, em itálico**; ao lado do H1 há o botão de **editar o título**, que abre um diálogo para salvar, remover (texto vazio) ou desistir; a situação é uma etiqueta colorida (`br-tag`) e os dados do chamado são itens com rótulo pequeno, valor e divisor fino (`DetailHeader.kt`). O campo e o botão "Título local" deixaram de existir.
