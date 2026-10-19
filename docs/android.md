@@ -222,3 +222,9 @@ Os botões do detalhe viraram três menus suspensos logo abaixo do título e da 
 ## Interessado com foto, nome e setor (#130)
 
 No detalhe, o interessado aparece como no cabeçalho da conta: avatar redondo com a **foto**, ao lado o **nome usual** e, abaixo, o **setor** (`InterestedItem`). Tudo vem da página do chamado no SUAP: a foto é a do bloco da pessoa (`.person .photo-circle img`, lida em `TicketDetails.interested_photo`, só do mesmo SUAP e sem a foto padrão), o nome é o campo "Interessado" e o setor é o campo "Setor atual" (o SUAP não tem um campo "campus" separado nessa página). A foto é baixada uma vez e guardada no aparelho (`ticket_photo`); sem foto, fica o ícone de pessoa.
+
+## Notas internas, anexos e a linha do tempo em abas (#132)
+
+A linha do tempo do detalhe tem quatro abas, cada uma com a quantidade (`ThreadTabs.kt`): **Tudo** (comentários, acontecimentos, anexos e notas juntos, do mais novo ao mais antigo), **Comentários**, **Notas internas** e **Anexos**. A aba de notas só existe para quem é da equipe de atendimento (é quando a página do SUAP traz a aba `notas_internas`; para os demais ela some). Cada entrada mostra quem escreveu (foto e nome), o que foi (comentou, escreveu uma nota interna, anexou um arquivo ou um acontecimento, em itálico) e a data; as notas ficam em destaque. Os anexos mostram quem anexou e quando (da aba de anexos do SUAP) e baixam com um toque.
+
+No núcleo, `TicketDetails` ganhou `thread` e `notes` (com o tipo `EntryKind`, o autor, a foto, o texto sem o título e uma data ordenável) e os anexos ganharam `by`; o CLI continua usando `timeline`, que não mudou.

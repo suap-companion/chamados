@@ -398,6 +398,7 @@ fun DetailScreen(model: MainViewModel, id: String) {
 
 @Composable
 private fun Details(model: MainViewModel, view: TicketView) {
+    var tab by remember(view.id) { mutableStateOf(ThreadTab.All) }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { DetailHeader(model, view) }
         item { ActionsSection(model, view) }
@@ -407,26 +408,8 @@ private fun Details(model: MainViewModel, view: TicketView) {
         items(view.fields.filter { interested == null || it !== sector }) { field ->
             if (field === interested) InterestedItem(field.value, sector?.value, photo) else FieldItem(field)
         }
-        if (view.attachments.isNotEmpty()) {
-            item { Text("Anexos", style = MaterialTheme.typography.titleMedium) }
-            items(view.attachments) { attachment ->
-                OutlinedButton(
-                    onClick = { model.download(view.id, attachment.number) },
-                    enabled = model.downloading == null,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (model.downloading == attachment.number) "Baixando…" else attachment.name) }
-            }
-        }
-        if (view.timeline.isNotEmpty()) {
-            item { Text("Linha do tempo", style = MaterialTheme.typography.titleMedium) }
-            items(view.timeline) { entry ->
-                Column {
-                    Text(entry.date, style = MaterialTheme.typography.labelMedium)
-                    Text(entry.text)
-                    HorizontalDivider(Modifier.padding(top = 8.dp))
-                }
-            }
-        }
+        item { ThreadTabRow(view, tab) { tab = it } }
+        threadContent(model, view, tab)
     }
 }
 

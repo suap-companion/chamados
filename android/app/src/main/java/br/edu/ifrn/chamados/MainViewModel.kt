@@ -532,7 +532,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Baixa (uma vez) as fotos de quem pediu; a lista não espera por elas. */
     private fun loadPhotos(list: List<uniffi.chamados_mobile.TicketSummary>) = loadPhotoPaths(list.mapNotNull { it.photo })
 
-    private fun loadPhotoPaths(paths: List<String>) {
+    /** As fotos do chamado: a do interessado e as de quem escreveu cada comentário, nota e acontecimento. */
+    private fun detailPhotos(view: uniffi.chamados_mobile.TicketView): List<String> =
+        listOfNotNull(view.photo) + (view.thread + view.notes).mapNotNull { it.photo }
+
+    fun loadPhotoPaths(paths: List<String>) {
         val wanted = paths.distinct().filter { it !in photoFiles }
         if (wanted.isEmpty()) return
         viewModelScope.launch {
@@ -551,7 +555,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             detailError = null
             try {
                 detail = open().show(id)
-                detail?.photo?.let { loadPhotoPaths(listOf(it)) }
+                detail?.let { loadPhotoPaths(detailPhotos(it)) }
                 // Ver um chamado que voltou do adiamento tira a marca de "novo" (em todos os aparelhos).
                 if (snoozes[id]?.due == true) {
                     open().unsnooze(id)
@@ -594,7 +598,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Atualiza o detalhe depois de uma ação, sem sair da tela. */
     private suspend fun reloadDetail(id: String) {
-        runCatching { open().show(id) }.onSuccess { detail = it; it.photo?.let { path -> loadPhotoPaths(listOf(path)) } }
+        runCatching { open().show(id) }.onSuccess { detail = it; loadPhotoPaths(detailPhotos(it)) }
     }
 
     private val pickFolder get() = File(getApplication<Application>().cacheDir, "envio")

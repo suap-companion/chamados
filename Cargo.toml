@@ -12,7 +12,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "0.50.0"
+version = "0.51.0"
 
 # Perfil das bibliotecas do aplicativo móvel: menor, não mais rápido (`cargo ndk ... --profile mobile`).
 [profile.mobile]
