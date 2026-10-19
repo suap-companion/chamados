@@ -45,6 +45,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import uniffi.chamados_mobile.SnoozeItem
 import uniffi.chamados_mobile.TicketSummary
@@ -85,7 +86,7 @@ fun TicketItem(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Avatar(photo, selected)
+        PersonAvatar(photo, checked = selected)
         Column(Modifier.weight(1f).clearAndSetSemantics { }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("#${ticket.id}  ${ticket.status.orEmpty()}", style = MaterialTheme.typography.labelLarge)
             if (snooze != null && note != null) {
@@ -98,22 +99,22 @@ fun TicketItem(
     }
 }
 
-/** O avatar do solicitante: a foto da lista, ou o ícone de pessoa enquanto não há (ou não baixou). */
+/** O avatar de uma pessoa: a foto (arquivo no aparelho), ou o ícone de pessoa sem foto; com `checked`, um visto. */
 @Composable
-private fun Avatar(photo: String?, checked: Boolean) {
+fun PersonAvatar(photo: String?, size: Dp = 40.dp, checked: Boolean = false) {
     val bitmap = remember(photo) {
         photo?.let { path -> runCatching { BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull() }
     }
     Box(
-        Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant),
+        Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         if (checked) {
-            Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(size).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
                 Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
             }
         } else if (bitmap != null) {
-            Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(40.dp))
+            Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size))
         } else {
             Icon(Icons.Filled.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }

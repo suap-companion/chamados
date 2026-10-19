@@ -128,3 +128,22 @@ fun FieldItem(field: TicketField) {
         HorizontalDivider(Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
+
+/**
+ * O interessado como no cabeçalho da conta: a foto (a mesma que a lista traz, quando o chamado veio dela),
+ * o nome usual e, se o SUAP trouxer o campo, o campus. Sem foto, o ícone de pessoa.
+ */
+@Composable
+fun InterestedItem(name: String, campus: String?, photo: String?) {
+    Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Interessado", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            PersonAvatar(photo, size = 48.dp)
+            Column {
+                Text(name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                if (campus != null) Text(campus, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        HorizontalDivider(Modifier.padding(top = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    }
+}
