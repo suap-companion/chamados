@@ -123,11 +123,11 @@
     <p>Para levar seus títulos, arquivos e adiamentos entre o app e o CLI, os dois usam um mesmo espaço de armazenamento (R2 ou S3) <strong>cifrado de ponta a ponta</strong>. O passo a passo:</p>
     <ol>
       <li>No computador, configure a sincronização e envie os títulos: <code>chamados sync setup …</code>, <code>chamados sync credentials set</code>, <code>chamados sync key generate</code> e <code>chamados sync</code> (veja <a href="usar-cli.html">Usar o CLI</a>).</li>
-      <li>No computador, rode <code>chamados sync key pair</code>: ele mostra um QR com a chave e os dados do bucket.</li>
+      <li>No computador, rode <code>chamados sync key pair --com-credenciais</code>: ele mostra um QR com a chave, os dados do bucket <strong>e as credenciais</strong>, para configurar tudo de uma vez. (Sem <code>--com-credenciais</code> o QR não leva as credenciais.)</li>
       <li>No app, abra o menu <em>⋮ › Sincronização entre dispositivos</em> e toque em <em>Ler QR</em> (ou cole o texto do pareamento).</li>
-      <li>O QR <strong>não leva as credenciais</strong> do armazenamento: informe a <em>Access Key ID</em> e a <em>Secret Access Key</em> e toque em <em>Guardar credenciais</em>. A sincronização roda sozinha; depois use <em>Sincronizar agora</em> quando quiser.</li>
+      <li>Com o QR completo, o app guarda a chave, o bucket e as credenciais e <strong>já sincroniza</strong>: não há mais nada a digitar. Se o QR veio sem credenciais, o app pede a <em>Access Key ID</em> e a <em>Secret Access Key</em> e sincroniza ao guardá-las. Quem não quiser usar QR escolhe <em>Configurar manualmente</em>.</li>
     </ol>
-    <p>Se o botão <em>Sincronizar agora</em> estiver cinza, a própria tela diz o que falta (bucket, chave ou credenciais). <strong>Não mostre o QR em telas compartilhadas:</strong> ele contém a chave.</p>
+    <p>Se o botão <em>Sincronizar agora</em> estiver cinza, a própria tela diz o que falta (bucket, chave ou credenciais). <strong>Não mostre o QR em telas compartilhadas nem o fotografe:</strong> ele contém a chave e, com <code>--com-credenciais</code>, o <strong>secret do bucket</strong>; use um token restrito a esse bucket.</p>
 
   </main>
   <footer class="foot">

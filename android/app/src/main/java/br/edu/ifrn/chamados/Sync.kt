@@ -44,10 +44,17 @@ fun syncBlocker(state: SyncState?): String? = when {
     !state.hasKey ->
         "Falta a chave de criptografia: o QR do computador a traz; ou crie ou guarde uma mais abaixo."
     !state.hasCredentials ->
-        "Falta informar a Access Key ID e a Secret Access Key do bucket (elas não vão no QR). " +
-            "Ao guardá-las, a sincronização roda sozinha."
+        "Falta informar a Access Key ID e a Secret Access Key do bucket (este QR não as trouxe; o QR de " +
+            "\"chamados sync key pair --com-credenciais\" traz tudo). Ao guardá-las, a sincronização roda sozinha."
     else -> null
 }
+
+/**
+ * Se as opções manuais (credenciais, chave, bucket) aparecem: só quando a pessoa escolhe não usar o QR, ou
+ * quando o QR deixou algo por fazer (bucket e chave pareados, mas sem as credenciais).
+ */
+fun showManualSetup(manual: Boolean, state: SyncState?): Boolean =
+    manual || (state != null && state.configured && state.hasKey && !state.hasCredentials)
 
 /** Sincronização cifrada de títulos e perfis entre o app e o computador (mesmo bucket e mesma chave). */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -66,6 +73,7 @@ fun SyncScreen(model: MainViewModel) {
     var accessKey by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var hex by remember { mutableStateOf("") }
+    var manual by remember { mutableStateOf(false) }
     val hasKey = state?.hasKey == true
 
     /** Pede confirmação antes de trocar uma chave que já existe (o que ela cifrou ficaria ilegível). */
@@ -106,7 +114,8 @@ fun SyncScreen(model: MainViewModel) {
         ) {
             Text(
                 "Títulos locais e perfis seguem cifrados (só você tem a chave) para um bucket seu. " +
-                    "Rodar \"chamados sync key pair\" no computador mostra o QR que configura tudo, menos as credenciais do bucket.",
+                    "No computador, \"chamados sync key pair --com-credenciais\" mostra um QR que configura tudo de uma vez " +
+                    "(chave, bucket e credenciais): é só lê-lo aqui. Sem a opção, o QR não leva as credenciais.",
             )
             if (state != null) {
                 val bucketText = if (state.configured) "${state.backend}: ${state.bucket}" + (state.prefix?.let { "/$it" } ?: "") else "não configurado"
@@ -140,73 +149,79 @@ fun SyncScreen(model: MainViewModel) {
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Aplicar texto") }
 
-            HorizontalDivider()
-            Text("Credenciais do bucket", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
-                value = accessKey,
-                onValueChange = { accessKey = it },
-                label = { Text("Access Key ID") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = secret,
-                onValueChange = { secret = it },
-                label = { Text("Secret Access Key") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedButton(
-                onClick = {
-                    model.saveCredentials(accessKey, secret)
-                    accessKey = ""
-                    secret = ""
-                },
-                enabled = !model.syncBusy && accessKey.isNotBlank() && secret.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Guardar credenciais") }
-
-            HorizontalDivider()
-            Text("Chave de criptografia", style = MaterialTheme.typography.titleMedium)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { replacing { replace -> model.generateKey(replace) } }, enabled = !model.syncBusy) { Text("Criar chave") }
-                OutlinedButton(onClick = model::revealKey, enabled = !model.syncBusy && hasKey) { Text("Mostrar chave") }
+            if (!showManualSetup(manual, state)) {
+                OutlinedButton(onClick = { manual = true }, modifier = Modifier.fillMaxWidth()) { Text("Configurar manualmente (sem QR)") }
             }
-            model.shownKey?.let {
-                Text("Guarde em segredo; leve-a ao computador com \"chamados sync key import\".", style = MaterialTheme.typography.labelMedium)
-                SelectionContainer { Text(it, style = MaterialTheme.typography.bodySmall) }
-            }
-            OutlinedTextField(
-                value = hex,
-                onValueChange = { hex = it },
-                label = { Text("Chave vinda do computador (64 hexadecimais)") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedButton(
-                onClick = { replacing { replace -> model.importKey(hex, replace) } },
-                enabled = !model.syncBusy && hex.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Guardar chave") }
+            if (showManualSetup(manual, state)) {
+                HorizontalDivider()
+                Text("Credenciais do bucket", style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(
+                    value = accessKey,
+                    onValueChange = { accessKey = it },
+                    label = { Text("Access Key ID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = secret,
+                    onValueChange = { secret = it },
+                    label = { Text("Secret Access Key") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedButton(
+                    onClick = {
+                        model.saveCredentials(accessKey, secret)
+                        accessKey = ""
+                        secret = ""
+                    },
+                    enabled = !model.syncBusy && accessKey.isNotBlank() && secret.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Guardar credenciais") }
 
-            HorizontalDivider()
-            Text("Bucket (sem QR)", style = MaterialTheme.typography.titleMedium)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("r2" to "Cloudflare R2", "s3" to "S3").forEach { (name, label) ->
-                    FilterChip(selected = backend == name, onClick = { backend = name }, label = { Text(label) })
+                HorizontalDivider()
+                Text("Chave de criptografia", style = MaterialTheme.typography.titleMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { replacing { replace -> model.generateKey(replace) } }, enabled = !model.syncBusy) { Text("Criar chave") }
+                    OutlinedButton(onClick = model::revealKey, enabled = !model.syncBusy && hasKey) { Text("Mostrar chave") }
                 }
+                model.shownKey?.let {
+                    Text("Guarde em segredo; leve-a ao computador com \"chamados sync key import\".", style = MaterialTheme.typography.labelMedium)
+                    SelectionContainer { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+                OutlinedTextField(
+                    value = hex,
+                    onValueChange = { hex = it },
+                    label = { Text("Chave vinda do computador (64 hexadecimais)") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedButton(
+                    onClick = { replacing { replace -> model.importKey(hex, replace) } },
+                    enabled = !model.syncBusy && hex.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Guardar chave") }
+
+                HorizontalDivider()
+                Text("Bucket (sem QR)", style = MaterialTheme.typography.titleMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("r2" to "Cloudflare R2", "s3" to "S3").forEach { (name, label) ->
+                        FilterChip(selected = backend == name, onClick = { backend = name }, label = { Text(label) })
+                    }
+                }
+                OutlinedTextField(value = endpoint, onValueChange = { endpoint = it }, label = { Text("Endpoint (https://…)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = bucket, onValueChange = { bucket = it }, label = { Text("Bucket") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = region, onValueChange = { region = it }, label = { Text("Região (vazio no R2)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = prefix, onValueChange = { prefix = it }, label = { Text("Prefixo (opcional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedButton(
+                    onClick = {
+                        model.saveBucket(SyncSetup(backend, endpoint.trim(), bucket.trim(), region.trim().ifEmpty { null }, prefix.trim().ifEmpty { null }))
+                    },
+                    enabled = !model.syncBusy && endpoint.isNotBlank() && bucket.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Guardar bucket") }
+
             }
-            OutlinedTextField(value = endpoint, onValueChange = { endpoint = it }, label = { Text("Endpoint (https://…)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = bucket, onValueChange = { bucket = it }, label = { Text("Bucket") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = region, onValueChange = { region = it }, label = { Text("Região (vazio no R2)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = prefix, onValueChange = { prefix = it }, label = { Text("Prefixo (opcional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedButton(
-                onClick = {
-                    model.saveBucket(SyncSetup(backend, endpoint.trim(), bucket.trim(), region.trim().ifEmpty { null }, prefix.trim().ifEmpty { null }))
-                },
-                enabled = !model.syncBusy && endpoint.isNotBlank() && bucket.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Guardar bucket") }
 
             HorizontalDivider()
             OutlinedButton(onClick = model::forgetSync, enabled = !model.syncBusy && state?.configured == true, modifier = Modifier.fillMaxWidth()) {

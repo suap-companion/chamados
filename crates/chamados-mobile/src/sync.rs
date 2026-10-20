@@ -280,14 +280,19 @@ impl Chamados {
             .map_err(failed)
     }
 
-    /// Aplica um pareamento (o texto do QR do `chamados sync key pair`): o bucket e a chave.
-    /// Uma chave que já existia é substituída.
+    /// Aplica um pareamento (o texto do QR do `chamados sync key pair`): o bucket, a chave e, se o QR as
+    /// trouxe (`--com-credenciais`), as credenciais do bucket. Uma chave que já existia é substituída.
     pub fn sync_apply_pairing(&self, text: String) -> Result<SyncState, ChamadosError> {
         let pairing = Pairing::parse(&text).map_err(failed)?;
         let mut settings = load_sync_settings(&self.paths).map_err(failed)?;
         pairing.apply(&mut settings, &self.key_file());
         self.save_bucket(&mut settings)?;
         store_key(&self.key_source(), &pairing.key, true).map_err(failed)?;
+        if let Some(credentials) = &pairing.credentials {
+            credentials
+                .store_file(&self.credentials_file())
+                .map_err(failed)?;
+        }
         self.sync_state()
     }
 
@@ -538,6 +543,30 @@ mod tests {
             .is_err());
         let to_folder = text.replace("backend=r2", "backend=ftp");
         assert!(phone.sync_apply_pairing(to_folder).is_err());
+    }
+
+    #[test]
+    fn a_pairing_with_credentials_configures_everything_in_one_step() {
+        let root = tempfile::tempdir().unwrap();
+        let (cli, phone) = (device(root.path(), "cli"), device(root.path(), "phone"));
+        cli.sync_setup(bucket()).unwrap();
+        cli.sync_generate_key(false).unwrap();
+        let settings = load_sync_settings(&cli.paths).unwrap();
+        let key = load_key(&cli.key_source()).unwrap().unwrap();
+        let credentials = S3Credentials::parse(
+            "AKIAEXEMPLO
+segredo-do-bucket",
+        )
+        .unwrap();
+        let text = Pairing::from_settings(&settings, key)
+            .unwrap()
+            .with_credentials(credentials)
+            .to_uri();
+
+        let state = phone.sync_apply_pairing(text).unwrap();
+        assert!(state.configured && state.has_key && state.has_credentials);
+        let stored = std::fs::read_to_string(phone.credentials_file()).unwrap();
+        assert!(stored.contains("AKIAEXEMPLO") && stored.contains("segredo-do-bucket"));
     }
 
     #[tokio::test]

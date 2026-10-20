@@ -1,6 +1,7 @@
 package br.edu.ifrn.chamados
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -41,5 +42,23 @@ class SyncBlockerTest {
     fun `a ordem do que falta e bucket, chave, credenciais`() {
         val noKeyNoCreds = syncBlocker(state(key = false, credentials = false))
         assertEquals(syncBlocker(state(key = false)), noKeyNoCreds)
+    }
+
+    @Test
+    fun `as opcoes manuais ficam recolhidas ate a pessoa escolher ou o QR deixar algo por fazer`() {
+        // Aparelho novo: só o QR.
+        assertFalse(showManualSetup(false, null))
+        assertFalse(showManualSetup(false, state(configured = false, key = false, credentials = false)))
+        // A pessoa escolheu não usar o QR.
+        assertTrue(showManualSetup(true, null))
+        // O QR sem credenciais trouxe bucket e chave: faltam as credenciais, então o campo aparece.
+        assertTrue(showManualSetup(false, state(credentials = false)))
+        // Tudo configurado (QR completo): nada manual.
+        assertFalse(showManualSetup(false, state()))
+    }
+
+    @Test
+    fun `o aviso de credenciais indica o QR que traz tudo`() {
+        assertTrue(syncBlocker(state(credentials = false))!!.contains("--com-credenciais"))
     }
 }
