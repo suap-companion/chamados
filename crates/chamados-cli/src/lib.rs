@@ -444,9 +444,15 @@ enum KeyCommand {
         #[arg(long)]
         force: bool,
     },
-    /// Mostra o QR (e o texto) que leva a chave e o bucket ao app Android; as credenciais do bucket
-    /// não vão nele. O QR contém a chave: mostre-o só a quem vai lê-lo.
-    Pair,
+    /// Mostra o QR (e o texto) que leva a chave e o bucket ao app Android. Por padrão as credenciais do
+    /// bucket não vão nele; com `--com-credenciais` o QR configura tudo em um passo, mas passa a conter
+    /// também o secret do bucket. O QR contém a chave: mostre-o só a quem vai lê-lo.
+    Pair {
+        /// Leva também a Access Key ID e o Secret do bucket (do chaveiro): quem ler ou fotografar o QR
+        /// ganha acesso ao bucket. Use um token restrito a esse bucket.
+        #[arg(long = "com-credenciais")]
+        with_credentials: bool,
+    },
     /// Informa a fonte da chave e se ela existe.
     Status,
 }
@@ -1858,14 +1864,24 @@ fn sync_key(
             let key = load_key(&source)?.ok_or_else(|| no_key(&source))?;
             writeln!(out, "{}", key.to_hex())?;
         }
-        KeyCommand::Pair => {
+        KeyCommand::Pair { with_credentials } => {
             let source = unlock(source, prompt, false)?;
             let key = load_key(&source)?.ok_or_else(|| no_key(&source))?;
-            let uri = Pairing::from_settings(&settings, key)?.to_uri();
+            let mut pairing = Pairing::from_settings(&settings, key)?;
+            if with_credentials {
+                let credentials = S3Credentials::load()?.ok_or(NO_CREDENTIALS)?;
+                pairing = pairing.with_credentials(credentials);
+            }
+            let uri = pairing.to_uri();
             writeln!(out, "{}", qr_text(&uri)?)?;
             writeln!(out, "{uri}")?;
             writeln!(out)?;
-            writeln!(out, "{PAIR_NOTE}")?;
+            let note = if with_credentials {
+                PAIR_NOTE_FULL
+            } else {
+                PAIR_NOTE
+            };
+            writeln!(out, "{note}")?;
         }
         KeyCommand::Import { force } => {
             let key = Key::from_hex(&read_text(None, input)?)?;
@@ -1882,6 +1898,9 @@ fn sync_key(
     Ok(())
 }
 
+const NO_CREDENTIALS: &str =
+    "nenhuma credencial do bucket: execute `chamados sync credentials set`";
+const PAIR_NOTE_FULL: &str = "No app: menu ⋮ > Sincronização entre dispositivos > Ler QR (ou cole o texto acima): o app configura a chave, o bucket e as credenciais e sincroniza sozinho. ATENÇÃO: este QR e este texto contêm a chave de criptografia **e o secret do bucket**; quem os vir ou fotografar ganha acesso ao bucket. Não os compartilhe, não os cole em lugar algum, limpe o terminal depois e use um token restrito a este bucket. Rode `chamados sync` antes para enviar os títulos.";
 const PAIR_NOTE: &str = "No app: menu ⋮ > Sincronização entre dispositivos > Ler QR (ou cole o texto acima); depois informe a Access Key ID e a Secret do bucket (não vão no QR) e a sincronização roda sozinha. Rode `chamados sync` antes para enviar os títulos. O texto e o QR contêm a chave de criptografia: não os compartilhe.";
 const AUTOMATION_NOTE: &str = "Dica: o chaveiro do sistema só abre com a sessão do usuário; para rodar sozinho, guarde a chave em arquivo (`chamados sync setup --key-source file`) ou na variável CHAMADOS_SYNC_KEY. Uma chave com frase-senha não serve para isso.";
 const SERVICE_UNIT: &str = "chamados-sync.service";
@@ -5463,6 +5482,60 @@ linha com acentuação
             .unwrap();
         let (_, exported, _) = run_args(&["sync", "key", "export"], &paths);
         assert_eq!(Pairing::parse(uri).unwrap().key.to_hex(), exported.trim());
+    }
+
+    #[test]
+    fn sync_key_pair_carries_the_credentials_only_when_asked() {
+        let _guard = use_mock_keyring();
+        let root = tempdir().unwrap();
+        let (_dir, paths) = paths();
+        let key_file = root.path().join("k");
+        let args = s3_setup_args(
+            "https://conta.r2.cloudflarestorage.com",
+            key_file.to_str().unwrap(),
+        );
+        assert_eq!(run_args(&args, &paths).0, 0);
+        run_args(&["sync", "key", "generate"], &paths);
+
+        // The default QR never has the credentials, even when they are stored.
+        let stored = "AKIAEXEMPLO
+segredo-que-vai-no-qr
+";
+        let (code, _, _) = run_with_input(&["sync", "credentials", "set"], &paths, stored);
+        assert_eq!(code, 0);
+        let (code, out, _) = run_args(&["sync", "key", "pair"], &paths);
+        assert_eq!(code, 0);
+        assert!(!out.contains("segredo-que-vai-no-qr") && !out.contains("acesso="));
+        assert!(out.contains("não vão no QR"));
+
+        let (code, out, err) = run_args(&["sync", "key", "pair", "--com-credenciais"], &paths);
+        assert_eq!((code, err.as_str()), (0, ""));
+        let uri = out
+            .lines()
+            .find(|line| line.starts_with("chamados-sync:"))
+            .unwrap();
+        let pairing = Pairing::parse(uri).unwrap();
+        let credentials = pairing.credentials.expect("credentials in the pairing");
+        assert_eq!(credentials.access_key_id, "AKIAEXEMPLO");
+        assert_eq!(credentials.secret_access_key, "segredo-que-vai-no-qr");
+        assert!(out.contains("ATENÇÃO") && out.contains("secret do bucket"));
+    }
+
+    #[test]
+    fn sync_key_pair_with_credentials_needs_them_stored() {
+        let _guard = use_mock_keyring();
+        let root = tempdir().unwrap();
+        let (_dir, paths) = paths();
+        let key_file = root.path().join("k");
+        let args = s3_setup_args(
+            "https://conta.r2.cloudflarestorage.com",
+            key_file.to_str().unwrap(),
+        );
+        assert_eq!(run_args(&args, &paths).0, 0);
+        run_args(&["sync", "key", "generate"], &paths);
+        let (code, _, err) = run_args(&["sync", "key", "pair", "--com-credenciais"], &paths);
+        assert_eq!(code, 1);
+        assert!(err.contains("nenhuma credencial do bucket"), "{err}");
     }
 
     trait OwnedStrings {

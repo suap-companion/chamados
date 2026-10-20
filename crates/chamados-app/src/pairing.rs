@@ -1,12 +1,13 @@
 //! Pareamento de dispositivos da sincronização: o que o QR (ou o texto colado) leva de um para o outro.
 //!
-//! Leva a chave de criptografia e os dados **não secretos** do bucket (endpoint, bucket, região,
-//! prefixo). As credenciais de acesso ao bucket nunca vão aqui: cada dispositivo as recebe à parte.
-//! Como o QR contém a chave, só deve ser mostrado a quem vai lê-lo (nunca em tela compartilhada).
+//! Leva a chave de criptografia e os dados do bucket (endpoint, bucket, região, prefixo). As
+//! credenciais de acesso ao bucket só vão se forem pedidas (`with_credentials`): por padrão cada
+//! dispositivo as recebe à parte. Como o QR contém a chave (e, quando pedido, o secret do bucket), só
+//! deve ser mostrado a quem vai lê-lo (nunca em tela compartilhada).
 
 use std::path::Path;
 
-use chamados_sync::{Key, SyncError, R2_BACKEND, S3_BACKEND};
+use chamados_sync::{Key, S3Credentials, SyncError, R2_BACKEND, S3_BACKEND};
 use qrcode::{render::unicode::Dense1x2, QrCode};
 use suap_core::SyncSettings;
 use url::Url;
@@ -23,6 +24,8 @@ pub struct Pairing {
     pub region: Option<String>,
     pub bucket: String,
     pub prefix: Option<String>,
+    /// As credenciais do bucket, só quando a pessoa pediu para levá-las junto (o `Debug` as esconde).
+    pub credentials: Option<S3Credentials>,
 }
 
 fn refused(detail: &str) -> SyncError {
@@ -47,7 +50,15 @@ impl Pairing {
             region: settings.region.clone(),
             bucket: bucket.clone(),
             prefix: settings.prefix.clone(),
+            credentials: None,
         })
+    }
+
+    /// Leva também as credenciais do bucket: quem ler o QR configura tudo em um passo, e quem o
+    /// fotografar ganha acesso ao bucket.
+    pub fn with_credentials(mut self, credentials: S3Credentials) -> Self {
+        self.credentials = Some(credentials);
+        self
     }
 
     /// O texto do pareamento (o que o QR carrega): `chamados-sync://pareamento?...`.
@@ -65,6 +76,10 @@ impl Pairing {
             }
             if let Some(prefix) = &self.prefix {
                 query.append_pair("prefixo", prefix);
+            }
+            if let Some(credentials) = &self.credentials {
+                query.append_pair("acesso", &credentials.access_key_id);
+                query.append_pair("segredo", &credentials.secret_access_key);
             }
         }
         uri.into()
@@ -94,6 +109,14 @@ impl Pairing {
         else {
             return Err(refused("faltam a chave, o endpoint ou o bucket"));
         };
+        let credentials = match (field("acesso"), field("segredo")) {
+            (Some(access_key_id), Some(secret_access_key)) => Some(S3Credentials {
+                access_key_id,
+                secret_access_key,
+            }),
+            (None, None) => None,
+            _ => return Err(refused("faltam o acesso ou o segredo do bucket")),
+        };
         Ok(Self {
             key: Key::from_hex(&key)?,
             backend,
@@ -101,6 +124,7 @@ impl Pairing {
             region: field("regiao"),
             bucket,
             prefix: field("prefixo"),
+            credentials,
         })
     }
 
@@ -155,6 +179,40 @@ mod tests {
         let plain = Pairing::from_settings(&plain, key).unwrap();
         assert!(!plain.to_uri().contains("regiao"));
         assert_eq!(Pairing::parse(&plain.to_uri()).unwrap(), plain);
+    }
+
+    fn credentials() -> S3Credentials {
+        S3Credentials {
+            access_key_id: "AKIAEXEMPLO".to_owned(),
+            secret_access_key: "segredo/com+simbolos=".to_owned(),
+        }
+    }
+
+    #[test]
+    fn the_credentials_travel_only_when_asked_for_and_stay_out_of_debug() {
+        let key = Key::generate();
+        let plain = Pairing::from_settings(&bucket(), key.clone()).unwrap();
+        assert!(plain.credentials.is_none());
+        assert!(!plain.to_uri().contains("segredo") && !plain.to_uri().contains("acesso"));
+
+        let full = plain.with_credentials(credentials());
+        let uri = full.to_uri();
+        assert!(uri.contains("acesso=AKIAEXEMPLO") && uri.contains("segredo="));
+        // Symbols in the secret survive the percent-encoding.
+        assert_eq!(Pairing::parse(&uri).unwrap(), full);
+        assert_eq!(
+            Pairing::parse(&uri).unwrap().credentials,
+            Some(credentials())
+        );
+        let shown = format!("{full:?}");
+        assert!(!shown.contains("segredo/com") && !shown.contains("AKIAEXEMPLO"));
+
+        // The id without the secret (or the opposite) is a broken pairing.
+        let only_id = uri.split("&segredo=").next().unwrap().to_owned();
+        let error = Pairing::parse(&only_id).unwrap_err().to_string();
+        assert!(error.contains("faltam o acesso ou o segredo"), "{error}");
+        let only_secret = uri.replace("acesso=AKIAEXEMPLO&", "");
+        assert!(Pairing::parse(&only_secret).is_err());
     }
 
     #[test]
