@@ -828,13 +828,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveBucket(setup: SyncSetup) = syncTask("Bucket guardado.") { it.syncSetup(setup); null }
 
     fun saveCredentials(id: String, secret: String) =
-        syncTask("Credenciais guardadas.") { it.syncSetCredentials(id, secret); null }
+        syncTask("Credenciais guardadas.") { it.syncSetCredentials(id, secret); syncIfReady(it) }
 
     /** Aplica o texto de um pareamento (o do QR); a chave existente só é trocada com `replace`. */
     fun applyPairing(text: String, replace: Boolean) = syncTask("Pareado: bucket e chave guardados. Falta só informar as credenciais.") {
         check(replace || it.syncState().hasKey.not()) { "Já existe uma chave neste aparelho." }
         it.syncApplyPairing(text)
-        null
+        syncIfReady(it)
     }
 
     fun generateKey(replace: Boolean) = syncTask("Chave criada.") { it.syncGenerateKey(replace); null }
@@ -846,10 +846,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         null
     }
 
-    fun syncNow() = syncTask(null) {
-        val report = it.syncNow()
-        titles = it.titles().associate { item -> item.id to item.title }
-        "Sincronizado: ${report.profiles} perfil(is), ${report.localChanges} alteração(ões) aqui, nuvem " +
+    fun syncNow() = syncTask(null) { runSync(it) }
+
+    /** Sincroniza na hora se já há bucket, chave e credenciais (o que falta o QR e a digitação completam). */
+    private suspend fun syncIfReady(core: Chamados): String? {
+        val state = core.syncState()
+        return if (state.configured && state.hasKey && state.hasCredentials) runSync(core) else null
+    }
+
+    private suspend fun runSync(core: Chamados): String {
+        val report = core.syncNow()
+        titles = core.titles().associate { item -> item.id to item.title }
+        return "Sincronizado: ${report.profiles} perfil(is), ${report.localChanges} alteração(ões) aqui, nuvem " +
             if (report.uploaded) "atualizada." else "já estava em dia."
     }
 

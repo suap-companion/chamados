@@ -380,7 +380,7 @@ chamados profile update local --sync true
 chamados sync
 ```
 
-Em outro dispositivo, repita o `setup` e **leve a chave por um canal seu** (nunca pela nuvem): `chamados sync key export` imprime a chave em hexadecimal e `chamados sync key import` a lê da entrada padrão (`chamados sync key export | ssh outro chamados sync key import`). `chamados sync key status` informa onde a chave está e se existe. Para o app Android, `chamados sync key pair` mostra um QR com a chave e os dados do bucket (sem as credenciais), que o app lê para se parear.
+Em outro dispositivo, repita o `setup` e **leve a chave por um canal seu** (nunca pela nuvem): `chamados sync key export` imprime a chave em hexadecimal e `chamados sync key import` a lê da entrada padrão (`chamados sync key export | ssh outro chamados sync key import`). `chamados sync key status` informa onde a chave está e se existe. Para o app Android, `chamados sync key pair` mostra um QR com a chave e os dados do bucket (sem as credenciais), que o app lê para se parear: no app, menu ⋮ › *Sincronização entre dispositivos* › *Ler QR*, depois informe a Access Key ID e a Secret do bucket (a sincronização roda sozinha ao guardá-las). Rode `chamados sync` antes, para os títulos do computador já estarem na nuvem.
 
 ### Cloudflare R2 (ou outro S3-compatível)
 
