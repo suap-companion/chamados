@@ -1,14 +1,18 @@
 //! A pessoa logada (nome usual, matrícula e foto, como o SUAP mostra no canto da página), guardada no
 //! aparelho para o cabeçalho do app funcionar também sem rede.
 
-use std::{fs, io::ErrorKind, path::PathBuf};
+use std::{fs, io::ErrorKind, path::PathBuf, time::Duration};
 
-use chamados_core::parse_user_profile;
+use chamados_core::{is_site_cdn, parse_user_profile};
+use url::Url;
 
 use crate::{failed, Chamados, ChamadosError};
 
 const INFO_FILE: &str = "usuario.txt";
 const PHOTO_FILE: &str = "foto.img";
+/// Uma foto maior que isto não é foto de perfil: não é guardada.
+const MAX_PHOTO_BYTES: usize = 2_000_000;
+const PHOTO_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Quem está logado: o nome usual, o vínculo (matrícula) e o arquivo da foto, se o SUAP tem uma.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -19,6 +23,35 @@ pub struct UserInfo {
     pub photo: Option<String>,
 }
 
+/// O nome do arquivo de uma foto. A de um endereço completo (o CDN) tem a assinatura na consulta, que
+/// muda a cada listagem: o nome usa só o servidor e o caminho, para a mesma foto não ser baixada de novo.
+fn photo_file_name(path: &str) -> String {
+    let stable = match Url::parse(path) {
+        Ok(url) => format!("{}{}", url.host_str().unwrap_or_default(), url.path()),
+        Err(_) => path.to_owned(),
+    };
+    stable
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect()
+}
+
+/// Baixa uma imagem de um endereço completo, sem a sessão do SUAP (o endereço do CDN já vem assinado).
+/// `None` se não for uma imagem, se o servidor recusar ou se for grande demais.
+async fn fetch_image(url: &Url) -> Option<Vec<u8>> {
+    let builder = reqwest::Client::builder().timeout(PHOTO_TIMEOUT);
+    let response = builder.build().ok()?.get(url.clone()).send().await.ok()?;
+    let kind = response.headers().get(reqwest::header::CONTENT_TYPE);
+    let is_image = kind
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|kind| kind.starts_with("image/"));
+    if !response.status().is_success() || !is_image {
+        return None;
+    }
+    let bytes = response.bytes().await.ok()?;
+    (bytes.len() <= MAX_PHOTO_BYTES).then(|| bytes.to_vec())
+}
+
 fn remove(path: &PathBuf) -> Result<(), ChamadosError> {
     match fs::remove_file(path) {
         Err(error) if error.kind() != ErrorKind::NotFound => Err(failed(error)),
@@ -27,6 +60,24 @@ fn remove(path: &PathBuf) -> Result<(), ChamadosError> {
 }
 
 impl Chamados {
+    /// Os bytes de uma foto do SUAP: um caminho do mesmo SUAP vai com a sessão; um endereço completo só
+    /// vale se for do CDN de um subdomínio dele (https) e vai sem a sessão.
+    async fn photo_bytes(&self, path: &str) -> Option<Vec<u8>> {
+        let Ok(url) = Url::parse(path) else {
+            return self
+                .client
+                .fetch_file(path)
+                .await
+                .ok()
+                .map(|(bytes, _)| bytes);
+        };
+        if is_site_cdn(&url, &self.base_url) {
+            fetch_image(&url).await
+        } else {
+            None
+        }
+    }
+
     fn info_file(&self) -> PathBuf {
         self.paths.data_dir().join(INFO_FILE)
     }
@@ -67,14 +118,10 @@ impl Chamados {
     /// A foto de quem pediu um chamado (o caminho vem de `TicketSummary.photo`): baixa no SUAP uma vez e
     /// guarda no aparelho; devolve o arquivo, ou `None` se não deu para baixar.
     pub async fn ticket_photo(&self, path: String) -> Result<Option<String>, ChamadosError> {
-        let name: String = path
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-            .collect();
         let folder = self.paths.data_dir().join("fotos");
-        let file = folder.join(name);
+        let file = folder.join(photo_file_name(&path));
         if !file.exists() {
-            let Ok((bytes, _)) = self.client.fetch_file(&path).await else {
+            let Some(bytes) = self.photo_bytes(&path).await else {
                 return Ok(None);
             };
             fs::create_dir_all(&folder).map_err(failed)?;
@@ -92,12 +139,7 @@ impl Chamados {
         };
         // Sem foto (só a padrão do SUAP), ou se ela não baixar: o app mostra o ícone de pessoa.
         let photo = match &profile.photo_path {
-            Some(path) => self
-                .client
-                .fetch_file(path)
-                .await
-                .ok()
-                .map(|(bytes, _)| bytes),
+            Some(path) => self.photo_bytes(path).await,
             None => None,
         };
         fs::create_dir_all(self.paths.data_dir()).map_err(failed)?;
@@ -207,6 +249,72 @@ mod tests {
         std::fs::write(&blocked, "x").unwrap();
         serve(&server, "/m/y.jpg", vec![4]).await;
         assert!(chamados.ticket_photo("/m/y.jpg".to_owned()).await.is_err());
+    }
+
+    #[test]
+    fn the_file_of_a_photo_is_named_by_its_address_without_the_signature() {
+        // A plain path keeps naming the file as it always did.
+        assert_eq!(photo_file_name("/m/x.jpg"), "_m_x_jpg");
+        // The CDN address changes its signature at every listing: the same photo, the same file.
+        let first = "https://cdn.suap.example/media/fotos/1.jpg?X-Amz-Signature=aaa&X-Amz-Date=1";
+        let second = "https://cdn.suap.example/media/fotos/1.jpg?X-Amz-Signature=bbb&X-Amz-Date=2";
+        assert_eq!(photo_file_name(first), photo_file_name(second));
+        assert_eq!(photo_file_name(first), "cdn_suap_example_media_fotos_1_jpg");
+        assert_ne!(
+            photo_file_name(first),
+            photo_file_name("https://cdn.suap.example/media/fotos/2.jpg")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_image_is_fetched_from_a_full_address_only_when_it_is_one() {
+        let server = MockServer::start().await;
+        let serve_as = |at: &'static str, kind: &'static str, body: Vec<u8>| {
+            Mock::given(method("GET"))
+                .and(path(at))
+                .respond_with(ResponseTemplate::new(200).set_body_raw(body, kind))
+        };
+        serve_as("/ok.jpg", "image/jpeg", vec![1, 2, 3])
+            .mount(&server)
+            .await;
+        serve_as("/page.html", "text/html", b"<html>login</html>".to_vec())
+            .mount(&server)
+            .await;
+        serve_as("/big.jpg", "image/jpeg", vec![0; MAX_PHOTO_BYTES + 1])
+            .mount(&server)
+            .await;
+        let at = |name: &str| Url::parse(&format!("{}{name}", server.uri())).unwrap();
+
+        assert_eq!(fetch_image(&at("/ok.jpg")).await, Some(vec![1, 2, 3]));
+        // Not an image (a login page, for example), too big, refused, or nobody there: no photo.
+        assert_eq!(fetch_image(&at("/page.html")).await, None);
+        assert_eq!(fetch_image(&at("/big.jpg")).await, None);
+        assert_eq!(fetch_image(&at("/missing.jpg")).await, None);
+        let closed = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            Url::parse(&format!("http://{}/x.jpg", listener.local_addr().unwrap())).unwrap()
+        };
+        assert_eq!(fetch_image(&closed).await, None);
+    }
+
+    #[tokio::test]
+    async fn only_the_photo_cdn_of_the_site_is_ever_asked_for_a_full_address() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().to_str().unwrap().to_owned();
+        let chamados = Chamados::new(data, "https://suap.invalid/".to_owned()).unwrap();
+        // Another server is refused without any request; the site's own CDN is tried (and, with
+        // nobody there, there is no photo), never with the site's session.
+        for address in [
+            "https://outro.example/media/f.jpg",
+            "http://cdn.suap.invalid/media/f.jpg",
+            "https://cdn.suap.invalid/media/f.jpg?X-Amz-Signature=abc",
+        ] {
+            assert_eq!(
+                chamados.ticket_photo(address.to_owned()).await.unwrap(),
+                None
+            );
+        }
+        assert!(!chamados.paths.data_dir().join("fotos").exists());
     }
 
     #[tokio::test]
