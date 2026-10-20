@@ -53,7 +53,7 @@ impl DraftKind {
 
     fn guideline(self) -> &'static str {
         match self {
-            Self::Title => "Crie um título curto, em uma única linha, que identifique o problema ou o pedido, sem o número do chamado.",
+            Self::Title => "Crie um título curto, em uma única linha, que identifique o problema ou o pedido descrito na descrição do chamado, sem o número do chamado.",
             Self::Comment => "Escreva um comentário público para o interessado, claro e cordial.",
             Self::InternalNote => "Escreva uma nota interna técnica para a equipe de atendimento: objetiva, com o que foi verificado e os próximos passos.",
             Self::Suspend => "Escreva a mensagem de suspensão: o motivo e o que é preciso para o atendimento ser retomado.",
@@ -402,7 +402,12 @@ fn fit_title(title: &str) -> String {
 pub fn template(kind: DraftKind, ticket: &TicketContext, hint: Option<&str>) -> String {
     let said = hint.map(one_line).filter(|text| !text.is_empty());
     if kind == DraftKind::Title {
-        let base = said.unwrap_or_else(|| one_line(&ticket.kind));
+        let described = ticket
+            .description
+            .as_deref()
+            .map(one_line)
+            .filter(|text| !text.is_empty());
+        let base = said.or(described).unwrap_or_else(|| one_line(&ticket.kind));
         return fit_title(&kind.template(&base));
     }
     kind.template(&said.unwrap_or_else(|| PLACEHOLDER.to_owned()))
@@ -721,13 +726,25 @@ mod tests {
             let said = template(kind, &tk, Some("a  fila\nparou"));
             assert!(said.contains("a fila parou"), "{kind:?}");
         }
-        // O título parte do tipo do chamado quando a pessoa não disse nada (ou só espaços).
+        // O título parte da descrição do chamado quando a pessoa não disse nada (ou só espaços)...
         assert_eq!(
             template(DraftKind::Title, &tk, None),
-            "Atualização de versão"
+            "Atualizar o Moodle para a 5.3.0"
         );
         assert_eq!(
             template(DraftKind::Title, &tk, Some("  ")),
+            "Atualizar o Moodle para a 5.3.0"
+        );
+        // ...e do tipo, se não houver descrição.
+        let mut bare = ticket(vec![]);
+        bare.description = None;
+        assert_eq!(
+            template(DraftKind::Title, &bare, None),
+            "Atualização de versão"
+        );
+        bare.description = Some("  ".to_owned());
+        assert_eq!(
+            template(DraftKind::Title, &bare, None),
             "Atualização de versão"
         );
         let long = "p ".repeat(200);
