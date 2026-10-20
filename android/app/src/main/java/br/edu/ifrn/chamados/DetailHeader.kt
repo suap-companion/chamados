@@ -111,7 +111,7 @@ fun StatusBadge(status: String) {
     )
 }
 
-private fun statusColors(status: String): Pair<Color, Color> {
+internal fun statusColors(status: String): Pair<Color, Color> {
     val s = status.lowercase()
     return when {
         "resolvid" in s || "fechad" in s -> GovBr.GreenCoolVivid5 to GovBr.GreenCoolVivid70
