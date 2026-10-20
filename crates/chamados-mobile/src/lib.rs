@@ -10,12 +10,14 @@ mod account;
 mod assisting;
 mod docs;
 mod exporting;
+mod marked;
 mod sync;
 mod watching;
 
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use chamados_app::{
@@ -102,7 +104,7 @@ pub async fn probe_suap(data_dir: String, base_url: String) -> Result<bool, Cham
 }
 
 /// Qual lista do SUAP ler.
-#[derive(Debug, Clone, Copy, uniffi::Enum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum Queue {
     /// Fila de suporte (para atendentes).
     Support,
@@ -161,6 +163,24 @@ pub struct ListQuery {
     pub page: Option<u32>,
     /// A quem o chamado está atribuído, só na fila de suporte (`mim`, `outros`, `ninguem`…).
     pub assignment: Option<String>,
+}
+
+/// Quantos chamados marcados se buscam um a um, no máximo, a cada vez que a lista é lida.
+const MAX_MARKED_LOOKUPS: usize = 60;
+/// Quanto tempo um chamado buscado um a um vale sem ser lido de novo (ms).
+const LOOKUP_TTL_MS: u64 = 10 * 60 * 1000;
+
+/// Os ids dos chamados adiados (ainda esperando, do que volta antes ao que volta depois, sem os
+/// arquivados) e dos arquivados.
+fn marked_ids(marks: &Marks<'_>) -> (Vec<String>, Vec<String>) {
+    let snoozed = marks
+        .snooze
+        .pending(marks.now)
+        .into_iter()
+        .map(|(id, _)| id)
+        .filter(|id| !marks.archive.is_archived(id))
+        .collect();
+    (snoozed, marks.archive.archived_ids())
 }
 
 impl ListQuery {
@@ -390,6 +410,9 @@ pub struct Chamados {
     client: SuapClient,
     paths: AppPaths,
     base_url: Url,
+    /// Os chamados adiados/arquivados buscados um a um (quando a lista da fila não os traz), com a hora
+    /// em que foram lidos (Unix ms): evita buscá-los de novo a cada atualização da lista.
+    looked_up: Mutex<HashMap<String, (u64, RemoteTicket)>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -409,6 +432,7 @@ impl Chamados {
             client,
             paths,
             base_url: config.base_url,
+            looked_up: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -438,7 +462,13 @@ impl Chamados {
     ) -> Result<Vec<TicketSummary>, ChamadosError> {
         let source = SuapTicketSource::new(&self.client, queue.core());
         let (needle, view) = (query.title.clone(), query.view.app());
-        let tickets = source.list_filtered(&query.core()).await.map_err(failed)?;
+        let tickets = if view != chamados_app::listing::ListView::Normal && queue != Queue::ToClose
+        {
+            // Adiados e arquivados vêm dos ids marcados, de uma vez (sem paginação).
+            self.marked_tickets(&source, &query, view).await?
+        } else {
+            source.list_filtered(&query.core()).await.map_err(failed)?
+        };
         let titles = TitleStore::open(self.paths.titles_file()).map_err(failed)?;
         let archive = ArchiveStore::open(self.paths.archive_file()).map_err(failed)?;
         let snooze = SnoozeStore::open(self.paths.snooze_file()).map_err(failed)?;
@@ -468,18 +498,7 @@ impl Chamados {
         query: ListQuery,
     ) -> Result<ListCounts, ChamadosError> {
         let source = SuapTicketSource::new(&self.client, queue.core());
-        let usual = source
-            .list_filtered(&query.clone().core())
-            .await
-            .map_err(failed)?;
-        let all = match queue {
-            Queue::ToClose => usual.clone(),
-            _ => {
-                let mut every = query.core();
-                every.all_statuses = true;
-                source.list_filtered(&every).await.map_err(failed)?
-            }
-        };
+        let usual = source.list_filtered(&query.core()).await.map_err(failed)?;
         let titles = TitleStore::open(self.paths.titles_file()).map_err(failed)?;
         let archive = ArchiveStore::open(self.paths.archive_file()).map_err(failed)?;
         let snooze = SnoozeStore::open(self.paths.snooze_file()).map_err(failed)?;
@@ -492,10 +511,22 @@ impl Chamados {
             let kept = narrow(tickets.to_vec(), &titles, &marks, view, None, None);
             u32::try_from(kept.len()).unwrap_or(u32::MAX)
         };
+        let (snoozed, archived) = match queue {
+            // "A fechar" só pagina: a mesma lista serve às três contas.
+            Queue::ToClose => (
+                count(&usual, chamados_app::listing::ListView::Snoozed),
+                count(&usual, chamados_app::listing::ListView::Archived),
+            ),
+            // As outras abas contam os ids marcados, como a lista de adiados e de arquivados os traz.
+            _ => {
+                let (snoozed, archived) = marked_ids(&marks);
+                (snoozed.len() as u32, archived.len() as u32)
+            }
+        };
         Ok(ListCounts {
             active: count(&usual, chamados_app::listing::ListView::Normal),
-            snoozed: count(&all, chamados_app::listing::ListView::Snoozed),
-            archived: count(&all, chamados_app::listing::ListView::Archived),
+            snoozed,
+            archived,
         })
     }
 
@@ -876,6 +907,127 @@ mod tests {
             for (core, mobile) in pairs {
                 assert_eq!(EntryKind::from(core), mobile);
             }
+        }
+
+        #[tokio::test]
+        async fn the_snoozed_and_archived_lists_come_from_the_marked_ids_not_from_one_page() {
+            let server = MockServer::start().await;
+            let (_dir, chamados) = app(&server);
+            // The support queue (usual statuses) only brings 1 and 2. Ticket 99 is somewhere else: it
+            // moved on (resolved) and is read from its own page; 98 has no page; 97 is archived.
+            page(
+                &server,
+                "GET",
+                "/centralservicos/listar_chamados_suporte/",
+                r#"<div class="general-box"><span class="status">Aberto</span>
+                <h4><a href="/centralservicos/chamado/1/">REQ #1 <strong>Um</strong></a></h4></div>
+                <div class="general-box"><span class="status">Em atendimento</span>
+                <h4><a href="/centralservicos/chamado/2/">REQ #2 <strong>Dois</strong></a></h4></div>"#,
+            )
+            .await;
+            let detail = |status: &str, heading: &str| {
+                format!(
+                    r#"<main id="content"><div class="title-container"><h2>Titulo</h2></div>
+                    <div class="object-status"><span class="status">{status}</span></div>
+                    <button class="accordion-button">{heading}</button></main>"#
+                )
+            };
+            page(
+                &server,
+                "GET",
+                "/centralservicos/chamado/99/",
+                &detail("Resolvido", "1.2 Gestão | Assunto 99"),
+            )
+            .await;
+            page(
+                &server,
+                "GET",
+                "/centralservicos/chamado/97/",
+                &detail("Aberto", "Sem barra"),
+            )
+            .await;
+            let later = unix_now() + 3_600_000;
+            for (id, until) in [("2", later), ("99", later + 1), ("98", later + 2)] {
+                chamados.snooze(id.to_owned(), until).unwrap();
+            }
+            chamados.set_archived("97".to_owned(), true).unwrap();
+
+            let view = |view| ListQuery {
+                view,
+                ..ListQuery::default()
+            };
+            // Snoozed: the listed one, the read one (status and subject from its page), in the order
+            // they come back; 98 cannot be read and is left out. Archived 97 is not in this list.
+            let snoozed = chamados
+                .list(Queue::Support, view(ListView::Snoozed))
+                .await
+                .unwrap();
+            let shown: Vec<_> = snoozed
+                .iter()
+                .map(|ticket| {
+                    (
+                        ticket.id.as_str(),
+                        ticket.status.as_deref(),
+                        ticket.subject.as_deref(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                shown,
+                [
+                    ("2", Some("Em atendimento"), Some("Dois")),
+                    ("99", Some("Resolvido"), Some("Assunto 99")),
+                ]
+            );
+            // A read ticket is remembered for a while; an expired memory is read again.
+            chamados.looked_up.lock().unwrap().get_mut("99").unwrap().0 = 0;
+            let again = chamados
+                .list(Queue::Support, view(ListView::Snoozed))
+                .await
+                .unwrap();
+            assert_eq!(again.len(), 2);
+            assert!(chamados.looked_up.lock().unwrap()["99"].0 > 0);
+            // Everything comes at once: the next page has nothing.
+            let next = ListQuery {
+                page: Some(2),
+                ..view(ListView::Snoozed)
+            };
+            assert!(chamados
+                .list(Queue::Support, next)
+                .await
+                .unwrap()
+                .is_empty());
+            // A heading without a bar keeps the whole text as the subject.
+            let archived = chamados
+                .list(Queue::Support, view(ListView::Archived))
+                .await
+                .unwrap();
+            assert_eq!(archived[0].subject.as_deref(), Some("Sem barra"));
+            // The title search narrows them too.
+            chamados
+                .set_title("99".to_owned(), "Rede".to_owned())
+                .unwrap();
+            let by_title = ListQuery {
+                title: Some("red".to_owned()),
+                ..view(ListView::Snoozed)
+            };
+            let found = chamados.list(Queue::Support, by_title).await.unwrap();
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].id, "99");
+
+            // The counts follow the marks (3 snoozed, counting the one that cannot be read; 1 archived).
+            let counts = chamados
+                .list_counts(Queue::Support, ListQuery::default())
+                .await
+                .unwrap();
+            assert_eq!((counts.active, counts.snoozed, counts.archived), (1, 3, 1));
+            // Nothing marked: no list is read at all.
+            let (_dir, empty) = app(&server);
+            let none = empty
+                .list(Queue::Support, view(ListView::Snoozed))
+                .await
+                .unwrap();
+            assert!(none.is_empty());
         }
 
         #[tokio::test]

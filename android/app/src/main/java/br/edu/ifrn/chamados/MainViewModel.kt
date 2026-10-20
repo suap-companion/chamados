@@ -35,6 +35,9 @@ private const val MAX_EMPTY_PAGES = 5
 
 enum class ListMode { Normal, Archived, Snoozed }
 
+/** As listas de adiados e de arquivados (fora da aba "A fechar") vêm inteiras na primeira leitura. */
+fun pagesInOneGo(queue: Queue, mode: ListMode): Boolean = mode != ListMode.Normal && queue != Queue.TO_CLOSE
+
 /** O filtro de atribuição que vai ao SUAP: só a fila de suporte o tem ("mim" quando ligado). */
 fun assignmentFilter(queue: Queue, assignedToMe: Boolean): String? =
     if (queue == Queue.SUPPORT && assignedToMe) "mim" else null
@@ -497,7 +500,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 tickets = open().list(queue, listQuery(null))
                 nextPage = 2u
-                endReached = false
+                // Adiados e arquivados vêm de uma vez (pelos ids marcados), sem paginação.
+                endReached = pagesInOneGo(queue, mode)
                 listStale = false
                 loadPhotos(tickets)
                 // Os selos não atrapalham a lista: se a contagem falhar, ficam como estavam.
