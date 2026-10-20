@@ -7,6 +7,8 @@
 uniffi::setup_scaffolding!();
 
 mod account;
+mod assisting;
+mod docs;
 mod exporting;
 mod sync;
 mod watching;

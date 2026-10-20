@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- O código que o UniFFI gera (src/main/java/uniffi) usa java.lang.ref.Cleaner só depois de checar a
+         versão em tempo de execução; não é editável à mão. -->
+    <issue id="NewApi">
+        <ignore path="**/uniffi/**" />
+    </issue>
+</lint>

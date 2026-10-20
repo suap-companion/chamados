@@ -40,6 +40,8 @@
       <li><a href="#avisos">Receber avisos</a></li>
       <li><a href="#compartilhar">Compartilhar do celular para um chamado</a></li>
       <li><a href="#perfis">Trocar de conta ou de SUAP</a></li>
+      <li><a href="#ia">Escrever com a ajuda da IA</a></li>
+      <li><a href="#documentos">Documentos de apoio</a></li>
       <li><a href="#sincronizar">Sincronizar com o computador</a></li>
     </ul>
 
@@ -98,6 +100,24 @@
 
     <h2 id="perfis">Trocar de conta ou de SUAP</h2>
     <p>Toque na sua foto (canto superior direito). O menu mostra seu nome, sua matrícula e os perfis. Escolha outro perfil para trocar, ou <em>Cadastrar novo perfil</em> para usar outro endereço do SUAP. Cada perfil tem sessão e dados próprios; trocar não apaga nada. <em>Sair</em> esquece a sessão do perfil.</p>
+
+    <h2 id="ia">Escrever com a ajuda da IA</h2>
+    <p>Nos diálogos de texto (comentário, nota interna, resolver, suspender, cancelar, reabrir, fechar e avaliar, escalar e devolver, e o título) há o botão <strong>Sugerir com IA</strong>. A IA do próprio aparelho lê o chamado aberto e escreve um rascunho; se você já digitou algumas palavras no campo, ela parte delas. Depois do rascunho, use <strong>Mais curto</strong>, <strong>Mais formal</strong> ou <strong>Refazer</strong>, e edite como quiser.</p>
+    <ul>
+      <li><strong>Nada é enviado sem a sua confirmação:</strong> o texto só vai ao SUAP quando você toca em <em>Enviar</em>. Revise sempre: a IA pode errar.</li>
+      <li><strong>Fica no aparelho:</strong> o chamado não sai do celular para gerar o texto.</li>
+      <li><strong>Notas internas não vazam:</strong> elas só são lidas pela IA quando o texto também é interno (nota interna, escalar, devolver); nunca num comentário, resolução ou fechamento.</li>
+      <li><strong>Sem IA no aparelho?</strong> O app coloca um modelo pronto, com <code>[preencher]</code> onde falta informação, para você completar.</li>
+    </ul>
+    <p class="callout">A IA usa o Gemini Nano pelo app AICore do Google, que só existe em aparelhos compatíveis. Veja <a href="faq.html#ia">“A IA não aparece”</a>.</p>
+
+    <h2 id="documentos">Documentos de apoio</h2>
+    <p>No menu ⋮ (ou em <em>Configurações › Assistente de IA</em>), abra <strong>Documentos de apoio</strong> e importe <strong>PDF, TXT ou Markdown</strong>: procedimentos, modelos de resposta, perguntas frequentes. Ao tocar em <strong>Sugerir com IA</strong>, o app procura nesses documentos os trechos mais úteis para o chamado e os usa como apoio, <strong>citando o arquivo e a página</strong>; a tela mostra “Documentos de apoio considerados”.</p>
+    <ul>
+      <li>A indexação é feita em segundo plano, com progresso. Você pode <em>Pausar</em> (ela continua de onde parou), <em>Reindexar</em> ou <em>Remover</em> (apaga o arquivo e tudo o que foi indexado).</li>
+      <li><strong>PDF digitalizado</strong> (só imagem) não tem texto e o app não faz OCR; PDF protegido por senha não é lido; o limite é de 50 MB e 500 páginas por documento.</li>
+      <li><strong>Privacidade:</strong> os documentos ficam só no aparelho, em pasta privada do app e fora do backup; nunca vão ao SUAP, à sincronização nem à internet.</li>
+    </ul>
 
     <h2 id="sincronizar">Sincronizar com o computador</h2>
     <p>Para levar seus títulos, arquivos e adiamentos entre o app e o CLI, os dois usam um mesmo espaço de armazenamento (R2 ou S3) <strong>cifrado de ponta a ponta</strong>. No computador, rode <code>chamados sync key pair</code>: ele mostra um QR. No app, em <em>Configurações › Sincronização entre dispositivos</em>, leia o QR (ou cole o texto) e digite as credenciais do armazenamento; elas não vão no QR. Depois, toque em <em>Sincronizar agora</em>. <strong>Não mostre o QR em telas compartilhadas:</strong> ele contém a chave.</p>

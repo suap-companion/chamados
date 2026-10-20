@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import uniffi.chamados_mobile.DraftKind
 import uniffi.chamados_mobile.TicketField
 import uniffi.chamados_mobile.TicketView
 
@@ -65,12 +66,13 @@ fun DetailHeader(model: MainViewModel, view: TicketView) {
         }
         model.detailError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
-    if (editing) TitleDialog(model, view.id) { editing = false }
+    if (editing) TitleDialog(model, view) { editing = false }
 }
 
 /** O diálogo de editar o título local: salvar, remover (texto vazio) ou desistir. */
 @Composable
-private fun TitleDialog(model: MainViewModel, id: String, onClose: () -> Unit) {
+private fun TitleDialog(model: MainViewModel, view: TicketView, onClose: () -> Unit) {
+    val id = view.id
     val current = model.titles[id].orEmpty()
     var text by remember(id) { mutableStateOf(current) }
     val removing = text.isBlank() && current.isNotEmpty()
@@ -83,6 +85,7 @@ private fun TitleDialog(model: MainViewModel, id: String, onClose: () -> Unit) {
                     value = text, onValueChange = { text = it }, singleLine = true,
                     label = { Text("Título (só seu)") }, modifier = Modifier.fillMaxWidth(),
                 )
+                AssistButton(DraftKind.TITLE, view, current.ifEmpty { null }, text) { text = it }
                 Text("O SUAP não tem título: ele fica só no seu aparelho e na sincronização.", style = MaterialTheme.typography.bodySmall)
             }
         },

@@ -20,6 +20,8 @@ required-features = ["bindgen"]
 
 [dependencies]
 chamados-app = { path = "../chamados-app" }
+chamados-assist = { path = "../chamados-assist" }
+chamados-rag = { path = "../chamados-rag" }
 chamados-core = { path = "../chamados-core" }
 chamados-sync = { path = "../chamados-sync" }
 suap-core = { path = "../suap-core" }

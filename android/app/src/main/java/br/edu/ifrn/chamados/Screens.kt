@@ -82,6 +82,7 @@ fun ChamadosApp(model: MainViewModel) {
         Screen.Settings -> SettingsScreen(model)
         Screen.NewTicket -> NewTicketScreen(model)
         Screen.Sync -> SyncScreen(model)
+        Screen.Documents -> DocumentsScreen(model)
     }
 }
 
@@ -170,6 +171,7 @@ fun TicketsScreen(model: MainViewModel) {
                 subtitle = model.activeProfile.name,
                 quick = listOf(
                     HeaderItem("Configurações") { model.openSettings() },
+                    HeaderItem("Documentos de apoio") { model.openDocuments() },
                     HeaderItem("Sincronização entre dispositivos") { model.openSync() },
                 ),
                 search = if (searchable) {
@@ -458,6 +460,7 @@ fun SettingsScreen(model: MainViewModel) {
             OutlinedButton(onClick = model::openSync, modifier = Modifier.fillMaxWidth()) { Text("Sincronização entre dispositivos") }
             OutlinedButton(onClick = model::logout, modifier = Modifier.fillMaxWidth()) { Text("Sair (esquecer a sessão)") }
             WatchSection()
+            AssistantSection(onDocuments = model::openDocuments)
             Text("Versão ${uniffi.chamados_mobile.coreVersion()}", style = MaterialTheme.typography.labelMedium)
         }
     }

@@ -54,6 +54,7 @@ sealed interface Screen {
     data object Settings : Screen
     data object NewTicket : Screen
     data object Sync : Screen
+    data object Documents : Screen
 }
 
 /** O que se pode fazer num chamado, na tela de detalhe. */
@@ -785,6 +786,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             Screen.NewTicket -> screen = Screen.Tickets
             Screen.Settings -> start()
             Screen.Sync -> screen = Screen.Settings
+            Screen.Documents -> screen = Screen.Tickets
             else -> Unit
         }
     }
@@ -810,6 +812,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 syncBusy = false
             }
         }
+    }
+
+    fun openDocuments() {
+        screen = Screen.Documents
     }
 
     fun openSync() {

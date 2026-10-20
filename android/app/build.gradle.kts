@@ -14,10 +14,11 @@ android {
 
     defaultConfig {
         applicationId = "br.edu.ifrn.chamados"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 37
         versionCode = major.toInt() * 10000 + minor.toInt() * 100 + patch.toInt()
         versionName = "$major.$minor.$patch"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     // A chave de assinatura nunca fica no repositório: vem de variáveis de ambiente (veja docs/android.md).
@@ -64,7 +65,23 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.2")
     implementation("androidx.camera:camera-view:1.4.2")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    // IA do sistema (Gemini Nano via AICore): "Sugerir com IA" nos textos dos chamados. Beta; a biblioteca pede
+    // minSdk 26, o mesmo do app.
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
+    // Modelo local de reserva (opcional, baixado só com consentimento): LiteRT-LM (o MediaPipe LLM Inference está em manutenção).
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
 
     // Acompanhamento em segundo plano: agendamento periódico que sobrevive a reinício e respeita o Doze.
     implementation("androidx.work:work-runtime-ktx:2.10.0")
+
+    // Testes unitários (JVM, sem aparelho): a lógica de tela que não depende da biblioteca nativa.
+    testImplementation("junit:junit:4.13.2")
+
+    // Testes de instrumentação (no emulador ou aparelho, com a biblioteca nativa de verdade): telas Compose e
+    // o fluxo de documentos. Rodam com `./gradlew connectedDebugAndroidTest`.
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2025.09.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

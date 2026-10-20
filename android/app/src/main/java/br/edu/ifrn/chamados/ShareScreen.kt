@@ -29,7 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.LocalActivity
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
@@ -38,7 +38,7 @@ import androidx.compose.ui.graphics.Color
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShareScreen(model: ShareViewModel) {
-    val activity = LocalContext.current as Activity
+    val activity = LocalActivity.current ?: error("A tela de compartilhamento precisa de uma Activity")
     Scaffold(topBar = { GovBrHeader("Enviar para o SUAP") }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             when (model.phase) {

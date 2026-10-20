@@ -236,3 +236,21 @@ Acima das entradas há um botão que alterna a ordem: **↓ Mais novos primeiro*
 ## Central de ajuda (#139)
 
 O site de suporte ao usuário final fica em `site/` (HTML estático, sem build) e é publicado no GitHub Pages em https://suap-companion.github.io/chamados/ pelo workflow `.github/workflows/pages.yml` (ao mesclar mudanças de `site/` na `main`; também à mão em Actions › Pages). Os links de download e a versão vêm da API do GitHub (release mais recente) por `site/assets/site.js`, com fallback para a página de releases; assim, uma release nova não exige mudar o site. As capturas de tela do app ficam em `site/assets/img/`.
+
+## Android 8.0 ou mais novo (minSdk 26)
+
+O app passou de minSdk 24 para **26** (Android 8.0): a Prompt API do ML Kit GenAI, usada pelo assistente de redação, pede API 26. Quem usa Android 7.x deixa de poder instalar o app. A biblioteca nativa em Rust também é compilada para a API 26 (`cargo ndk -P 26` em `scripts/build-android.sh` e em `android.yml`).
+
+## Assistente de redação — "Sugerir com IA"
+
+Os diálogos de texto (comentário, nota interna, resolver, suspender, cancelar, reabrir, fechar e avaliar, escalar/devolver e o título) têm o botão **Sugerir com IA**: a IA do aparelho (Gemini Nano via AICore) escreve um rascunho a partir do chamado aberto e do que a pessoa já digitou; o texto cai no campo, editável, e nada é enviado ao SUAP sem a confirmação do diálogo. Sem IA no aparelho, entra um modelo pronto com `[preencher]`. As regras (notas internas só em textos internos, orçamento de contexto, limpeza da resposta) ficam no crate `chamados-assist`, 100% testado; o Kotlin (`Assistant.kt`, `AssistButton.kt`) só fala com o modelo. Detalhes, privacidade, limitações e como testar em `docs/assistente.md`.
+
+O app pode, de forma **opcional e só com o consentimento da pessoa**, baixar um modelo local de reserva (Qwen2.5 1.5B, 1,6 GB, Apache-2.0) em Configurações › Assistente de IA; ele é conferido por SHA-256 e roda no aparelho com o LiteRT-LM (a biblioteca soma cerca de 45 MB ao APK de depuração, ~20 MB por ABI). Veja `docs/assistente.md`.
+
+## Documentos de apoio (M5 do assistente)
+
+O menu ⋮ do app tem **Documentos de apoio**: a pessoa importa PDF, TXT e Markdown, o Rust (`crates/chamados-rag`) indexa no aparelho (SQLite/FTS5, por página, em segundo plano pelo WorkManager, retomável) e o botão "Sugerir com IA" usa os trechos mais relevantes como apoio, citando arquivo e página. Os arquivos e o índice ficam em `noBackupFilesDir/docs-<perfil>/`, fora do backup automático. Detalhes em `docs/assistente.md`.
+
+## Testes de instrumentação
+
+`./gradlew connectedDebugAndroidTest` (emulador ou aparelho) roda `android/app/src/androidTest`: o botão "Sugerir com IA" e o fluxo de documentos com a biblioteca nativa de verdade. O CI não os roda (precisaria de um emulador).

@@ -16,7 +16,7 @@ MSYS_NO_PATHCONV=1 docker run --rm \
   -v cargo-reg:/usr/local/cargo/registry -v android-target:/w/target \
   chamados-android-build sh -c '
     set -e
-    cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -P 24 \
+    cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -P 26 \
       -o android/app/src/main/jniLibs build --profile mobile -p chamados-mobile
     # As ligações saem da biblioteca do host: a do Android, com `strip`, perde os metadados do UniFFI.
     cargo build -q -p chamados-mobile

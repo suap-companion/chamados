@@ -78,7 +78,7 @@ jobs:
         shell: bash
         run: |
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/${NDK_VERSION}"
-          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -P 24 \
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -P 26 \
             -o android/app/src/main/jniLibs build --profile mobile -p chamados-mobile
 
       - name: Generate the Kotlin bindings
@@ -105,6 +105,10 @@ jobs:
             echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
             echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
           } >> "$GITHUB_ENV"
+
+      - name: Unit tests and lint
+        working-directory: android
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug
 
       - name: Build the APK
         working-directory: android

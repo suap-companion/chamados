@@ -104,7 +104,7 @@ private fun CameraPreview(onResult: (String) -> Unit, onError: (String) -> Unit)
     )
 }
 
-@OptIn(ExperimentalGetImage::class)
+@androidx.annotation.OptIn(ExperimentalGetImage::class)
 private fun bind(
     context: Context,
     provider: ProcessCameraProvider,
