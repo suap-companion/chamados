@@ -74,10 +74,12 @@ fun AssistButton(
     var downloadable by remember { mutableStateOf(false) }
     var sources by remember { mutableStateOf<List<String>>(emptyList()) }
     var downloaded by remember { mutableStateOf<Long?>(null) }
-    val busy = job?.isActive == true
+    // Estado do Compose (e não `job.isActive`, que não recompõe a tela ao terminar nem ao cancelar).
+    var busy by remember { mutableStateOf(false) }
 
     fun suggest(refine: DraftRefine?) {
         val ticket = view ?: return
+        busy = true
         job = scope.launch {
             message = null
             try {
@@ -119,11 +121,14 @@ fun AssistButton(
                 throw cancelled
             } catch (error: Throwable) {
                 message = error.assistMessage()
+            } finally {
+                busy = false
             }
         }
     }
 
     fun download() {
+        busy = true
         job = scope.launch {
             message = null
             downloaded = 0
@@ -137,6 +142,7 @@ fun AssistButton(
                 message = error.assistMessage()
             } finally {
                 downloaded = null
+                busy = false
             }
         }
     }
