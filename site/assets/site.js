@@ -81,6 +81,7 @@
     ["Documentos de apoio", "usar-app.html#documentos", "documentos apoio pdf txt markdown importar indexar procedimento modelo citar fonte página"],
     ["Documento não indexado", "faq.html#documentos", "documento indexar sem texto ocr protegido senha pdf digitalizado grande"],
     ["Sincronizar com o computador", "usar-app.html#sincronizar", "sincronizar sync qr pareamento cifrada r2 s3"],
+    ["Sincronizar no CLI e onde ficam os dados", "usar-cli.html#sincronizar", "sync sincronizar config.toml sync.key chave titles.json chaveiro bucket r2 s3 diretório onde ficam arquivos"],
     ["Usar o CLI", "usar-cli.html", "cli comandos list show open comment note resolve title archive snooze export watch"],
     ["Exportar para a IA", "usar-cli.html", "export zip chamado.md chamado.json ia análise"],
     ["Sessão expirada", "faq.html#sessao", "sessão expirada login entrar de novo"],
