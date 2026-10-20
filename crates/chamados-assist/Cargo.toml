@@ -1,0 +1,9 @@
+[package]
+name = "chamados-assist"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Só para o limite de caracteres do título (a mesma regra do título local).
+chamados-core = { path = "../chamados-core" }
