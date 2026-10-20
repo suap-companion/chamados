@@ -159,6 +159,8 @@ pub struct ListQuery {
     /// `AAAA-MM-DD`.
     pub until: Option<String>,
     pub page: Option<u32>,
+    /// A quem o chamado está atribuído, só na fila de suporte (`mim`, `outros`, `ninguem`…).
+    pub assignment: Option<String>,
 }
 
 impl ListQuery {
@@ -170,6 +172,7 @@ impl ListQuery {
             since: self.since,
             until: self.until,
             page: self.page,
+            assignment: self.assignment,
             ..TicketFilter::default()
         }
     }
@@ -786,7 +789,7 @@ mod tests {
     mod facade {
         use super::*;
         use wiremock::{
-            matchers::{method, path},
+            matchers::{method, path, query_param},
             Mock, MockServer, ResponseTemplate,
         };
 
@@ -873,6 +876,31 @@ mod tests {
             for (core, mobile) in pairs {
                 assert_eq!(EntryKind::from(core), mobile);
             }
+        }
+
+        #[tokio::test]
+        async fn the_support_queue_can_be_limited_to_the_tickets_assigned_to_me() {
+            let server = MockServer::start().await;
+            let (_dir, chamados) = app(&server);
+            Mock::given(method("GET"))
+                .and(path("/centralservicos/listar_chamados_suporte/"))
+                .and(query_param("atribuicoes", "1"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(
+                    r#"<div class="general-box"><span class="status">Em atendimento</span>
+                    <h4><a href="/centralservicos/chamado/9/">REQ #9 <strong>Meu</strong></a></h4></div>"#,
+                ))
+                .mount(&server)
+                .await;
+            let mine = ListQuery {
+                assignment: Some("mim".to_owned()),
+                ..ListQuery::default()
+            };
+            let listed = chamados.list(Queue::Support, mine.clone()).await;
+            assert_eq!(listed.unwrap()[0].id, "9");
+            // Without the filter the fake SUAP serves nothing; "Meus chamados" has no such filter.
+            let all = chamados.list(Queue::Support, ListQuery::default()).await;
+            assert!(all.is_err());
+            assert!(chamados.list(Queue::Mine, mine).await.is_err());
         }
 
         #[tokio::test]
