@@ -78,7 +78,8 @@ chamados sync credentials set     <span class="c"># Access Key ID e Secret, guar
 chamados sync key generate        <span class="c"># gera a chave de cifra (só na primeira máquina)</span>
 chamados sync --check             <span class="c"># confere o destino e a chave, sem sincronizar</span>
 chamados sync                     <span class="c"># sincroniza (--dry-run mostra o que mudaria)</span>
-chamados sync key pair            <span class="c"># QR para parear o app Android</span>
+chamados sync key pair            <span class="c"># QR para parear o app Android (chave e bucket)</span>
+chamados sync key pair --com-credenciais   <span class="c"># QR que leva também as credenciais: o app configura tudo e sincroniza</span>
 chamados sync automation          <span class="c"># mostra o agendamento periódico (--install no systemd)</span></pre>
     <p>Para incluir um perfil na sincronização, use <code>chamados profile update --sync true</code> (começa desligado).</p>
 
@@ -95,7 +96,7 @@ chamados sync automation          <span class="c"># mostra o agendamento periód
       </tbody>
     </table>
     <p>A pasta de dados é <code>%APPDATA%\suap-companion\chamados\data</code> no Windows, <code>~/.local/share/chamados</code> no Linux e <code>~/Library/Application Support/br.edu.ifrn.suap-companion.chamados</code> no macOS.</p>
-    <p><strong>Guarde a chave.</strong> Sem ela, o que foi cifrado fica ilegível. Para levá-la a outro computador, use <code>chamados sync key export</code> e, no destino, <code>chamados sync key import</code>; o QR de <code>sync key pair</code> também contém a chave, então mostre-o só a quem vai lê-lo.</p>
+    <p><strong>Guarde a chave.</strong> Sem ela, o que foi cifrado fica ilegível. Para levá-la a outro computador, use <code>chamados sync key export</code> e, no destino, <code>chamados sync key import</code>; o QR de <code>sync key pair</code> também contém a chave, então mostre-o só a quem vai lê-lo. Com <code>--com-credenciais</code> ele contém ainda o <strong>secret do bucket</strong>: não o fotografe nem o mostre em tela compartilhada, e use um token restrito a esse bucket.</p>
 
     <p>Quer o passo a passo de instalação? <a href="instalar-cli.html">Instalar o CLI</a>.</p>
 
