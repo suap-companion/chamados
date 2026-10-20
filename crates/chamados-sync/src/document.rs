@@ -19,7 +19,7 @@ use suap_core::{
 };
 use url::Url;
 
-use crate::SyncError;
+use crate::{LocalResult, SyncError};
 
 const FORMAT_VERSION: u32 = 1;
 
@@ -221,9 +221,9 @@ pub fn collect_local(paths: &AppPaths, only: Option<&str>) -> Result<SyncDocumen
             continue;
         }
         let profile_paths = paths.clone().with_profile(&name)?;
-        let titles = TitleStore::open(profile_paths.titles_file())?;
-        let archive = ArchiveStore::open(profile_paths.archive_file())?;
-        let snooze = SnoozeStore::open(profile_paths.snooze_file())?;
+        let titles = TitleStore::open(profile_paths.titles_file()).local()?;
+        let archive = ArchiveStore::open(profile_paths.archive_file()).local()?;
+        let snooze = SnoozeStore::open(profile_paths.snooze_file()).local()?;
         document.profiles.insert(
             name.clone(),
             ProfileDoc {
@@ -315,32 +315,32 @@ pub fn apply_merged(
                 }
             }
         }
-        let mut titles = TitleStore::open(profile_paths.titles_file())?;
+        let mut titles = TitleStore::open(profile_paths.titles_file()).local()?;
         let mut changed = 0;
         for (id, entry) in &remote.titles {
-            changed += usize::from(titles.merge_entry(id, entry)?);
+            changed += usize::from(titles.merge_entry(id, entry).local()?);
         }
         report.titles_updated += changed;
         if write && changed > 0 {
-            titles.save()?;
+            titles.save().local()?;
         }
-        let mut archive = ArchiveStore::open(profile_paths.archive_file())?;
+        let mut archive = ArchiveStore::open(profile_paths.archive_file()).local()?;
         let mut changed = 0;
         for (id, entry) in &remote.archived {
-            changed += usize::from(archive.merge_entry(id, entry)?);
+            changed += usize::from(archive.merge_entry(id, entry).local()?);
         }
         report.archived_updated += changed;
         if write && changed > 0 {
-            archive.save()?;
+            archive.save().local()?;
         }
-        let mut snooze = SnoozeStore::open(profile_paths.snooze_file())?;
+        let mut snooze = SnoozeStore::open(profile_paths.snooze_file()).local()?;
         let mut changed = 0;
         for (id, entry) in &remote.snoozed {
-            changed += usize::from(snooze.merge_entry(id, entry)?);
+            changed += usize::from(snooze.merge_entry(id, entry).local()?);
         }
         report.snoozed_updated += changed;
         if write && changed > 0 {
-            snooze.save()?;
+            snooze.save().local()?;
         }
     }
     Ok(report)

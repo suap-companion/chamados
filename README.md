@@ -8,11 +8,10 @@ Cliente local para acompanhar e atender chamados do SUAP: uma **biblioteca** em 
 
 O projeto é um workspace Cargo (a biblioteca e o CLI) mais o aplicativo Android em `android/`:
 
-- `suap-core`: configuração, diretórios, autenticação, sessão, cookies e transporte compartilhados.
+- **Núcleo compartilhado** ([`suap-companion/suap-kit`](https://github.com/suap-companion/suap-kit), dependência Git fixada em tag no `Cargo.toml` da raiz): `suap-core` (configuração, diretórios, autenticação, sessão, cookies e transporte), `suap-rag` (base de documentos de apoio do assistente: importa PDF, TXT e Markdown, indexa em SQLite/FTS5 e devolve os trechos relevantes com arquivo e página) e `suap-sync` (criptografia, guarda da chave, backends de pasta e S3/R2 e trava da sincronização). Para mudar o núcleo, mude o `suap-kit`, publique uma tag e atualize a tag aqui.
 - `chamados-core`: domínio de chamados e recursos locais como títulos, arquivados e adiados.
-- `chamados-sync`: sincronização cifrada (perfis e marcas locais) entre dispositivos.
+- `chamados-sync`: sincronização cifrada (perfis e marcas locais) entre dispositivos: o documento sincronizado e sua mescla, sobre o `suap-sync`.
 - `chamados-app`: serviços de aplicação sem terminal, usados pelo CLI e pelo app.
-- `chamados-rag`: base de documentos de apoio do assistente (importa PDF, TXT e Markdown, indexa em SQLite/FTS5 e devolve os trechos relevantes com arquivo e página).
 - `chamados-assist`: regras do assistente de redação ("Sugerir com IA"): contexto do chamado, privacidade, orçamento do pedido e limpeza da resposta; veja `docs/assistente.md`.
 - `chamados-cli`: interface de linha de comando (o binário se chama `chamados`).
 - `chamados-mobile`: a fachada UniFFI que o aplicativo Android usa.
