@@ -193,7 +193,7 @@ O repositório passou de `suap-companion/chamados-cli` para **`suap-companion/ch
 
 ## Selos de quantidade (#117)
 
-Os filtros de cada aba (Ativos, Adiados, Arquivados) mostram um selo com quantos chamados há em cada situação (acima de 99, "99+"; sem selo quando é zero). A conta vem da fachada (`list_counts`): Ativos usa a lista de sempre da aba; Adiados e Arquivados contam em todas as situações do SUAP, como as listas deles (na aba "A fechar", que só pagina, a mesma lista serve às três). Os números se atualizam a cada atualização da lista, inclusive ao arquivar, adiar ou desfazer; se a contagem falhar, os selos ficam como estavam.
+Na aba **Suporte** há um filtro extra, **"Atribuídos a mim"** (`ListQuery.assignment = "mim"`, o SUAP faz o recorte; só existe nessa fila e vale junto com os demais). Os filtros de cada aba (Ativos, Adiados, Arquivados) mostram um selo com quantos chamados há em cada situação (acima de 99, "99+"; sem selo quando é zero). A conta vem da fachada (`list_counts`): Ativos usa a lista de sempre da aba; Adiados e Arquivados contam em todas as situações do SUAP, como as listas deles (na aba "A fechar", que só pagina, a mesma lista serve às três). Os números se atualizam a cada atualização da lista, inclusive ao arquivar, adiar ou desfazer; se a contagem falhar, os selos ficam como estavam.
 
 ## Listagem no padrão gov.br: Lista, Item e Loading (#119)
 

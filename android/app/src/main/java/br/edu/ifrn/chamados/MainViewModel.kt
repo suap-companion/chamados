@@ -35,6 +35,10 @@ private const val MAX_EMPTY_PAGES = 5
 
 enum class ListMode { Normal, Archived, Snoozed }
 
+/** O filtro de atribuição que vai ao SUAP: só a fila de suporte o tem ("mim" quando ligado). */
+fun assignmentFilter(queue: Queue, assignedToMe: Boolean): String? =
+    if (queue == Queue.SUPPORT && assignedToMe) "mim" else null
+
 /** As ações que valem para vários chamados de uma vez (seleção em lote). */
 enum class BatchAction(val label: String) {
     Archive("Arquivar"),
@@ -152,6 +156,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var archived by mutableStateOf<Set<String>>(emptySet())
         private set
     var mode by mutableStateOf(ListMode.Normal)
+        private set
+    /** Na fila de suporte, mostrar só os chamados atribuídos a mim (um filtro extra, além de ativos/adiados/arquivados). */
+    var assignedToMe by mutableStateOf(false)
         private set
     /** Os adiados (número do chamado → quando volta, e se já voltou sem ninguém ver). */
     var snoozes by mutableStateOf<Map<String, SnoozeItem>>(emptyMap())
@@ -381,6 +388,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refresh()
     }
 
+    /** Liga ou desliga o filtro "Atribuídos a mim" da fila de suporte. */
+    fun toggleAssignedToMe() {
+        selection = emptySet()
+        assignedToMe = !assignedToMe
+        counts = null
+        refresh()
+    }
+
     /** Escolhe a situação a mostrar na aba: ativos, adiados ou arquivados. */
     fun chooseMode(next: ListMode) {
         selection = emptySet()
@@ -470,6 +485,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return ListQuery(
             title = if (marked) text else null, view = view, text = if (marked) null else text,
             statuses = emptyList(), allStatuses = marked && queue != Queue.TO_CLOSE, since = null, until = null, page = page,
+            assignment = assignmentFilter(queue, assignedToMe),
         )
     }
 
@@ -489,6 +505,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val base = ListQuery(
                     title = null, view = ListView.NORMAL, text = if (mode != ListMode.Normal) null else text,
                     statuses = emptyList(), allStatuses = false, since = null, until = null, page = null,
+                    assignment = assignmentFilter(queue, assignedToMe),
                 )
                 runCatching { open().listCounts(queue, base) }.onSuccess { if (generation == listGeneration) counts = it }
             } catch (error: Throwable) {

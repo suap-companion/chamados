@@ -114,7 +114,7 @@ class ShareViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Os chamados que a pessoa acompanha (e, se for atendente, os da fila) para escolher o destino. */
     private suspend fun loadTickets(chamados: Chamados) {
-        val query = ListQuery(title = null, view = uniffi.chamados_mobile.ListView.NORMAL, text = null, statuses = emptyList(), allStatuses = false, since = null, until = null, page = null)
+        val query = ListQuery(title = null, view = uniffi.chamados_mobile.ListView.NORMAL, text = null, statuses = emptyList(), allStatuses = false, since = null, until = null, page = null, assignment = null)
         val mine = runCatching { chamados.list(Queue.MINE, query) }.getOrDefault(emptyList())
         val support = runCatching { chamados.list(Queue.SUPPORT, query) }.getOrDefault(emptyList())
         tickets = (mine + support).distinctBy { it.id }

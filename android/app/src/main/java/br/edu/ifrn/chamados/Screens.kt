@@ -232,6 +232,13 @@ fun TicketsScreen(model: MainViewModel) {
                         },
                     )
                 }
+                if (model.queue == Queue.SUPPORT) {
+                    FilterChip(
+                        selected = model.assignedToMe,
+                        onClick = model::toggleAssignedToMe,
+                        label = { Text("Atribuídos a mim") },
+                    )
+                }
             }
             if (model.selection.isNotEmpty()) BatchBar(model)
             PullToRefreshBox(isRefreshing = model.listLoading, onRefresh = model::refresh, modifier = Modifier.fillMaxSize()) {
