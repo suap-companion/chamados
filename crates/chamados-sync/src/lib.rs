@@ -18,11 +18,11 @@ pub use document::{
 pub use engine::{sync_once, SyncOptions, SyncReport, OBJECT_NAME};
 pub use suap_sync::SyncError;
 pub use suap_sync::{
-    backend, backend_from, credentials, crypto, key_exists, key_source_from, keys, load_key,
-    protected, s3, setup, sigv4, store_key, validate_settings, AnyBackend, Condition,
-    DirectoryBackend, Key, KeySource, Object, Passphrase, PutOutcome, S3Backend, S3Credentials,
-    S3Settings, SyncBackend, SyncLock, DIRECTORY_BACKEND, KEY_ENV, PASSPHRASE_ENV, R2_BACKEND,
-    S3_BACKEND,
+    access_key_env, backend, backend_from, credentials, crypto, key_env, key_exists,
+    key_source_from, keys, load_key, passphrase_env, protected, s3, secret_key_env, setup, sigv4,
+    store_key, validate_settings, AnyBackend, Condition, DirectoryBackend, Key, KeySource, Object,
+    Passphrase, PutOutcome, S3Backend, S3Credentials, S3Settings, SyncBackend, SyncLock,
+    DIRECTORY_BACKEND, R2_BACKEND, S3_BACKEND,
 };
 
 /// Brings the errors of the local stores (`TicketError`) into [`SyncError`] with `?`.
