@@ -21,10 +21,10 @@ required-features = ["bindgen"]
 [dependencies]
 chamados-app = { path = "../chamados-app" }
 chamados-assist = { path = "../chamados-assist" }
-chamados-rag = { path = "../chamados-rag" }
+suap-rag.workspace = true
 chamados-core = { path = "../chamados-core" }
 chamados-sync = { path = "../chamados-sync" }
-suap-core = { path = "../suap-core" }
+suap-core.workspace = true
 # Ligações Kotlin/Swift geradas a partir do código Rust (a fachada do app).
 uniffi = { version = "0.29", features = ["tokio"] }
 thiserror = "2"

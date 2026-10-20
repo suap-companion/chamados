@@ -11,7 +11,7 @@ use std::{
     },
 };
 
-use chamados_rag as rag;
+use suap_rag as rag;
 
 use crate::{failed, sync::unix_now, ChamadosError};
 

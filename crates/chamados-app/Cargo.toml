@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 chamados-core = { path = "../chamados-core" }
 chamados-sync = { path = "../chamados-sync" }
-suap-core = { path = "../suap-core" }
+suap-core.workspace = true
 serde_json = "1"
 thiserror = "2"
 # Desenha o QR do pareamento no terminal (sem recursos de imagem): evita escrever um codificador de QR.

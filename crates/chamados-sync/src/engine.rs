@@ -1,16 +1,9 @@
 //! One synchronization round: download, decrypt, merge, upload and apply.
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    time::{Duration, SystemTime},
-};
-
 use suap_core::AppPaths;
+use suap_sync::{decrypt, encrypt, Condition, Key, Object, PutOutcome, SyncBackend};
 
 use crate::{
-    backend::{Condition, Object, PutOutcome, SyncBackend},
-    crypto::{decrypt, encrypt, Key},
     document::{apply_merged, collect_local, merge, SyncDocument},
     SyncError,
 };
@@ -18,8 +11,6 @@ use crate::{
 /// Name of the one object that holds the encrypted document.
 pub const OBJECT_NAME: &str = "chamados-sync-v1.bin";
 const MAX_ATTEMPTS: usize = 5;
-/// A lock older than this is considered abandoned by a crashed run.
-const STALE_LOCK: Duration = Duration::from_secs(10 * 60);
 
 /// What to synchronize.
 #[derive(Debug, Clone, Copy, Default)]
@@ -113,60 +104,15 @@ fn is_ours(stored: Option<Object>, uploaded: &[u8]) -> bool {
     stored.is_some_and(|stored| stored.bytes == uploaded)
 }
 
-/// Keeps two `chamados sync` runs from overlapping; released when dropped.
-#[derive(Debug)]
-pub struct SyncLock {
-    path: PathBuf,
-}
-
-impl SyncLock {
-    /// Takes the lock at `path`; `Ok(None)` if another run holds it.
-    pub fn acquire(path: &Path) -> Result<Option<Self>, SyncError> {
-        fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))?;
-        if is_stale(path) {
-            fs::remove_file(path)?;
-        }
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-        {
-            Ok(_) => Ok(Some(Self {
-                path: path.to_path_buf(),
-            })),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
-            Err(error) => Err(error.into()),
-        }
-    }
-}
-
-impl Drop for SyncLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
-fn is_stale(path: &Path) -> bool {
-    let age = fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .ok()
-        .and_then(|modified| SystemTime::now().duration_since(modified).ok());
-    age.is_some_and(|age| age > STALE_LOCK)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        backend::DirectoryBackend,
-        credentials::S3Credentials,
-        fake_s3::FakeS3,
-        setup::{backend_from, AnyBackend},
-    };
     use chamados_core::TitleStore;
     use std::cell::RefCell;
+    use std::path::Path;
     use suap_core::SyncSettings;
     use suap_core::{load_config, save_config, SuapConfig};
+    use suap_sync::{backend_from, fake_s3::FakeS3, AnyBackend, DirectoryBackend, S3Credentials};
     use tempfile::{tempdir, TempDir};
     use wiremock::MockServer;
 
@@ -600,36 +546,5 @@ mod tests {
         assert!(is_ours(object(b"igual"), b"igual"));
         assert!(!is_ours(object(b"outro"), b"igual"));
         assert!(!is_ours(None, b"igual"));
-    }
-
-    #[test]
-    fn the_lock_admits_one_run_at_a_time_and_recovers_from_stale_files() {
-        let directory = tempdir().unwrap();
-        let path = directory.path().join("sub").join("sync.lock");
-        let first = SyncLock::acquire(&path)
-            .unwrap()
-            .expect("first run gets the lock");
-        assert!(SyncLock::acquire(&path).unwrap().is_none());
-        drop(first);
-        assert!(!path.exists());
-        let again = SyncLock::acquire(&path).unwrap();
-        assert!(again.is_some());
-        drop(again);
-
-        // A lock left by a crashed run, long ago, is taken over.
-        fs::write(&path, "").unwrap();
-        let old = SystemTime::now() - Duration::from_secs(3600);
-        fs::File::options()
-            .write(true)
-            .open(&path)
-            .unwrap()
-            .set_modified(old)
-            .unwrap();
-        assert!(SyncLock::acquire(&path).unwrap().is_some());
-        // A file name the system refuses reports the I/O error; a parent that is a file does too.
-        assert!(SyncLock::acquire(&directory.path().join("x".repeat(300))).is_err());
-        let blocker = directory.path().join("arquivo");
-        fs::write(&blocker, "").unwrap();
-        assert!(SyncLock::acquire(&blocker.join("sync.lock")).is_err());
     }
 }

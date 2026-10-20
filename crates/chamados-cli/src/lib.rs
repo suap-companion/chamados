@@ -34,9 +34,9 @@ use chamados_core::{
     TicketSource, TitleStore, ASSIGNMENTS, ORDERS, RELATIONS, STATUSES,
 };
 use chamados_sync::{
-    backend_from, key_exists, key_source_from, load_key, record_removal, store_key,
+    backend_from, key_exists, key_source_from, load_key, passphrase_env, record_removal, store_key,
     validate_settings, Key, KeySource, Passphrase, S3Credentials, SyncBackend, SyncLock,
-    SyncOptions, DIRECTORY_BACKEND, PASSPHRASE_ENV, R2_BACKEND, S3_BACKEND,
+    SyncOptions, DIRECTORY_BACKEND, R2_BACKEND, S3_BACKEND,
 };
 use clap::{builder::PossibleValuesParser, Args, Parser, Subcommand, ValueEnum};
 use suap_core::{
@@ -1795,7 +1795,11 @@ fn sync_credentials(
 }
 
 fn no_passphrase(_: std::io::Error) -> Box<dyn Error> {
-    format!("sem terminal interativo: informe a frase-senha na variável {PASSPHRASE_ENV}").into()
+    format!(
+        "sem terminal interativo: informe a frase-senha na variável {}",
+        passphrase_env()
+    )
+    .into()
 }
 
 /// Gets the passphrase of a protected key file from `env` or by asking (twice, when `confirm` is
@@ -1810,7 +1814,7 @@ fn unlock_with(
     if !source.needs_passphrase() || (!confirm && !key_exists(&source)?) {
         return Ok(source);
     }
-    if let Some(text) = env(PASSPHRASE_ENV).filter(|text| !text.is_empty()) {
+    if let Some(text) = env(&passphrase_env()).filter(|text| !text.is_empty()) {
         return Ok(source.with_passphrase(Passphrase::new(text)));
     }
     let first = prompt
@@ -5717,7 +5721,7 @@ linha com acentuação
         let (code, _, err) = run_args(&["sync", "key", "generate"], &paths);
         assert_eq!(code, 1);
         assert!(
-            err.contains("sem terminal") && err.contains(PASSPHRASE_ENV),
+            err.contains("sem terminal") && err.contains(&passphrase_env()),
             "{err}"
         );
         let mut terminal = QueuedTerminal::new(&["uma", "outra"]);
@@ -5772,7 +5776,7 @@ linha com acentuação
         let source = KeySource::parse("protected-file", Some(PathBuf::from("k"))).unwrap();
         let with = |value: Option<&'static str>| {
             move |name: &str| {
-                assert_eq!(name, PASSPHRASE_ENV);
+                assert_eq!(name, passphrase_env());
                 value.map(str::to_owned)
             }
         };

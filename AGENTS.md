@@ -4,7 +4,8 @@ Guia para agentes (e pessoas) que trabalham neste repositório: o monorepo `suap
 
 ## Mapa
 
-- `crates/`: `suap-core` (SUAP, sessão), `chamados-core` (domínio, parsers), `chamados-app` (serviços sem terminal), `chamados-sync` (sincronização cifrada), `chamados-assist` (regras do "Sugerir com IA"), `chamados-rag` (documentos de apoio: SQLite/FTS5), `chamados-mobile` (fachada UniFFI do app), `chamados-cli`.
+- `crates/`: `chamados-core` (domínio, parsers), `chamados-app` (serviços sem terminal), `chamados-sync` (documento sincronizado e motor, sobre o `suap-sync`), `chamados-assist` (regras do "Sugerir com IA"), `chamados-mobile` (fachada UniFFI do app), `chamados-cli`.
+- **Núcleo compartilhado**: `suap-core` (SUAP, sessão), `suap-rag` (documentos de apoio: SQLite/FTS5) e `suap-sync` (cripto, chaves, backends) vêm do repo [`suap-companion/suap-kit`](https://github.com/suap-companion/suap-kit) por dependência Git fixada em tag (`[workspace.dependencies]` do `Cargo.toml` da raiz). Não os copie para cá: mude o kit (PR, CI, tag) e atualize a tag. Testes de `suap-rag`/`suap-core`/`suap-sync` vivem lá (cobertura de 100% também).
 - `android/`: app Kotlin + Compose (minSdk 26). As ligações Kotlin do Rust são **geradas** (`android/app/src/main/java/uniffi/`, ignoradas pelo git): `sh scripts/build-android.sh`.
 - `site/`: central de ajuda (GitHub Pages, publicada pelo `pages.yml`). `docs/`: documentação técnica (`android.md`, `assistente.md`).
 - O HTML real do SUAP local está em `../suap/centralservicos/templates`: consulte antes de adivinhar o markup de um parser.
@@ -13,7 +14,7 @@ Guia para agentes (e pessoas) que trabalham neste repositório: o monorepo `suap
 
 - **Rust** (sem Rust local: Docker `rust:latest`): `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings` e `cargo llvm-cov --workspace --all-targets --ignore-filename-regex 'main\.rs' --fail-under-lines 100`. Cobertura de **100% das linhas** é regra (RS-01): uma linha só com `)?;` conta como perdida (use constantes e chamadas curtas); closures e ramos nunca executados também.
 - **Android**: `sh scripts/build-android.sh`, depois em `android/`: `./gradlew testDebugUnitTest lintDebug assembleDebug`.
-- **Testes de instrumentação (emulador `chamados-spike` ou aparelho): `./gradlew connectedDebugAndroidTest`.** **O CI NÃO os roda** (exigiria um emulador). **Rode-os localmente antes de cada release e antes de abrir PR que mexa em `android/` ou em `crates/chamados-mobile`/`chamados-rag`/`chamados-assist`**, e registre o resultado no PR. Eles só tocam documentos com o prefixo `teste-instrumentacao-` e os apagam.
+- **Testes de instrumentação (emulador `chamados-spike` ou aparelho): `./gradlew connectedDebugAndroidTest`.** **O CI NÃO os roda** (exigiria um emulador). **Rode-os localmente antes de cada release e antes de abrir PR que mexa em `android/` ou em `crates/chamados-mobile`/`chamados-assist` ou na tag do `suap-rag`**, e registre o resultado no PR. Eles só tocam documentos com o prefixo `teste-instrumentacao-` e os apagam.
 - Mudança em workflow do GitHub Actions: carregue a skill `github-actions` e consulte as versões das actions com `gh api repos/<dono>/<action>/releases/latest`.
 
 ## Regras do projeto
