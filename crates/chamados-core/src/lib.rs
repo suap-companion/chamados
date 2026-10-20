@@ -19,7 +19,7 @@ pub mod watch;
 pub use archive::{ArchiveEntry, ArchiveStore};
 pub use filter::{suap_date, TicketFilter, ASSIGNMENTS, MAX_PAGES, ORDERS, RELATIONS, STATUSES};
 pub use manage::{pick_choice, Choice, Direction, Reclassification};
-pub use profile::{parse_user_profile, UserProfile};
+pub use profile::{is_site_cdn, parse_user_profile, UserProfile};
 pub use snooze::{SnoozeEntry, SnoozeStore};
 pub use titles::{validate_title, TitleEntry, TitleStore, MAX_TITLE_CHARS};
 
