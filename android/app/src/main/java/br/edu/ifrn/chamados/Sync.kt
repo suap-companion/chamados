@@ -32,6 +32,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import uniffi.chamados_mobile.SyncSetup
+import uniffi.chamados_mobile.SyncState
+
+/**
+ * O que falta para sincronizar (`null` se já dá), dito à pessoa em vez de só desabilitar o botão. O QR do
+ * computador traz o bucket e a chave, mas não as credenciais: sem elas nada é sincronizado.
+ */
+fun syncBlocker(state: SyncState?): String? = when {
+    state == null || !state.configured ->
+        "Falta o bucket: leia o QR do computador (\"chamados sync key pair\") ou preencha o bucket mais abaixo."
+    !state.hasKey ->
+        "Falta a chave de criptografia: o QR do computador a traz; ou crie ou guarde uma mais abaixo."
+    !state.hasCredentials ->
+        "Falta informar a Access Key ID e a Secret Access Key do bucket (elas não vão no QR). " +
+            "Ao guardá-las, a sincronização roda sozinha."
+    else -> null
+}
 
 /** Sincronização cifrada de títulos e perfis entre o app e o computador (mesmo bucket e mesma chave). */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -101,6 +117,7 @@ fun SyncScreen(model: MainViewModel) {
                 Text(it, color = if (model.syncIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
             }
             if (model.syncBusy) CircularProgressIndicator()
+            syncBlocker(state)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 
             Button(
                 onClick = { model.syncNow() },

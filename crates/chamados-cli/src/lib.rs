@@ -1882,7 +1882,7 @@ fn sync_key(
     Ok(())
 }
 
-const PAIR_NOTE: &str = "No app: Configurações > Sincronização > Ler QR (ou cole o texto acima). O texto e o QR contêm a chave de criptografia: não os compartilhe. As credenciais do bucket não estão nele; informe-as no app.";
+const PAIR_NOTE: &str = "No app: menu ⋮ > Sincronização entre dispositivos > Ler QR (ou cole o texto acima); depois informe a Access Key ID e a Secret do bucket (não vão no QR) e a sincronização roda sozinha. Rode `chamados sync` antes para enviar os títulos. O texto e o QR contêm a chave de criptografia: não os compartilhe.";
 const AUTOMATION_NOTE: &str = "Dica: o chaveiro do sistema só abre com a sessão do usuário; para rodar sozinho, guarde a chave em arquivo (`chamados sync setup --key-source file`) ou na variável CHAMADOS_SYNC_KEY. Uma chave com frase-senha não serve para isso.";
 const SERVICE_UNIT: &str = "chamados-sync.service";
 const TIMER_UNIT: &str = "chamados-sync.timer";
