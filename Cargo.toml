@@ -1,20 +1,24 @@
 [workspace]
 members = [
-    "crates/suap-core",
     "crates/chamados-core",
     "crates/chamados-cli",
     "crates/chamados-sync",
     "crates/chamados-mobile",
     "crates/chamados-app",
     "crates/chamados-assist",
-    "crates/chamados-rag",
 ]
 resolver = "2"
+
+# Núcleo compartilhado (repositório suap-companion/suap-kit), fixado por tag.
+[workspace.dependencies]
+suap-core = { git = "https://github.com/suap-companion/suap-kit", tag = "v0.1.1" }
+suap-rag = { git = "https://github.com/suap-companion/suap-kit", tag = "v0.1.1" }
+suap-sync = { git = "https://github.com/suap-companion/suap-kit", tag = "v0.1.1" }
 
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "0.54.0"
+version = "0.54.1"
 
 # Perfil das bibliotecas do aplicativo móvel: menor, não mais rápido (`cargo ndk ... --profile mobile`).
 [profile.mobile]

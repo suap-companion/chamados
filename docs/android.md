@@ -249,7 +249,7 @@ O app pode, de forma **opcional e só com o consentimento da pessoa**, baixar um
 
 ## Documentos de apoio (M5 do assistente)
 
-O menu ⋮ do app tem **Documentos de apoio**: a pessoa importa PDF, TXT e Markdown, o Rust (`crates/chamados-rag`) indexa no aparelho (SQLite/FTS5, por página, em segundo plano pelo WorkManager, retomável) e o botão "Sugerir com IA" usa os trechos mais relevantes como apoio, citando arquivo e página. Os arquivos e o índice ficam em `noBackupFilesDir/docs-<perfil>/`, fora do backup automático. Detalhes em `docs/assistente.md`.
+O menu ⋮ do app tem **Documentos de apoio**: a pessoa importa PDF, TXT e Markdown, o Rust (`suap-rag` (repo `suap-kit`)) indexa no aparelho (SQLite/FTS5, por página, em segundo plano pelo WorkManager, retomável) e o botão "Sugerir com IA" usa os trechos mais relevantes como apoio, citando arquivo e página. Os arquivos e o índice ficam em `noBackupFilesDir/docs-<perfil>/`, fora do backup automático. Detalhes em `docs/assistente.md`.
 
 ## Testes de instrumentação
 
