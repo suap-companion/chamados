@@ -105,6 +105,8 @@ fun ActionsSection(model: MainViewModel, view: TicketView) {
     managing?.let { action ->
         ManageDialog(
             action = action,
+            view = view,
+            localTitle = model.titles[view.id],
             onDismiss = { managing = null },
             onConfirm = { values ->
                 managing = null
@@ -225,6 +227,9 @@ private fun ActionDialog(
                         minLines = 3,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    action.draftKind()?.let { kind ->
+                        AssistButton(kind, model.detail, model.detail?.let { model.titles[it.id] }, text) { text = it }
+                    }
                 }
                 if (action == DetailAction.Close) {
                     Text("Nota do atendimento")
@@ -255,7 +260,13 @@ private fun ActionDialog(
 }
 
 @Composable
-private fun ManageDialog(action: ManageAction, onDismiss: () -> Unit, onConfirm: (List<String>) -> Unit) {
+private fun ManageDialog(
+    action: ManageAction,
+    view: TicketView?,
+    localTitle: String?,
+    onDismiss: () -> Unit,
+    onConfirm: (List<String>) -> Unit,
+) {
     val values = remember { mutableStateListOf(*Array(action.fields.size) { "" }) }
     val ready = action.fields.indices.all { !action.fields[it].required || values[it].isNotBlank() } &&
         (action != ManageAction.Reclassify || values.take(3).any { it.isNotBlank() })
@@ -273,6 +284,12 @@ private fun ManageDialog(action: ManageAction, onDismiss: () -> Unit, onConfirm:
                         singleLine = field.lines == 1,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    // A nota de escalar e de devolver é a primeira linha: a IA escreve a partir do chamado.
+                    if (index == 0) {
+                        action.draftKind()?.let { kind ->
+                            AssistButton(kind, view, localTitle, values[0]) { values[0] = it }
+                        }
+                    }
                 }
                 if (action == ManageAction.Reclassify) Text("Preencha ao menos um entre serviço, campus e centro.")
             }
