@@ -12,9 +12,11 @@ O projeto é um workspace Cargo (a biblioteca e o CLI) mais o aplicativo Android
 - `chamados-core`: domínio de chamados e recursos locais como títulos, arquivados e adiados.
 - `chamados-sync`: sincronização cifrada (perfis e marcas locais) entre dispositivos.
 - `chamados-app`: serviços de aplicação sem terminal, usados pelo CLI e pelo app.
+- `chamados-rag`: base de documentos de apoio do assistente (importa PDF, TXT e Markdown, indexa em SQLite/FTS5 e devolve os trechos relevantes com arquivo e página).
+- `chamados-assist`: regras do assistente de redação ("Sugerir com IA"): contexto do chamado, privacidade, orçamento do pedido e limpeza da resposta; veja `docs/assistente.md`.
 - `chamados-cli`: interface de linha de comando (o binário se chama `chamados`).
 - `chamados-mobile`: a fachada UniFFI que o aplicativo Android usa.
-- `android/`: o aplicativo Android (Kotlin e Compose); veja `docs/android.md`.
+- `android/`: o aplicativo Android (Kotlin e Compose, Android 8.0 ou mais novo); veja `docs/android.md` e, para o assistente de IA, `docs/assistente.md`.
 
 A separação permite reutilizar o núcleo Rust no CLI e no Android sem colocar regras de chamados dentro da camada de autenticação do SUAP.
 
