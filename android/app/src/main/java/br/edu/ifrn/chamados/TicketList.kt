@@ -39,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -55,7 +56,10 @@ import uniffi.chamados_mobile.TicketSummary
  * divisores finos, padding de 16 dp, alvo de toque de 48 dp, e o skeleton do padrão de Loading.
  */
 
-/** Um chamado: avatar, número e situação, marca do adiamento, título local e assunto. Um único alvo de toque. */
+/**
+ * Um chamado: avatar, número e situação (como etiqueta colorida), marca do adiamento, título local e assunto.
+ * Sem título local, o assunto aparece em itálico no lugar dele. Um único alvo de toque.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TicketItem(
@@ -88,13 +92,22 @@ fun TicketItem(
     ) {
         PersonAvatar(photo, checked = selected)
         Column(Modifier.weight(1f).clearAndSetSemantics { }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text("#${ticket.id}  ${ticket.status.orEmpty()}", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("#${ticket.id}", style = MaterialTheme.typography.labelLarge)
+                ticket.status?.takeIf { it.isNotBlank() }?.let { StatusBadge(it) }
+            }
             if (snooze != null && note != null) {
                 val mark = if (snooze.due) "↩ " else "⏰ "
                 Text(mark + note, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             }
-            title?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-            Text(ticket.subject ?: "(sem assunto)", style = MaterialTheme.typography.bodyLarge)
+            val subject = ticket.subject ?: "(sem assunto)"
+            if (title != null) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(subject, style = MaterialTheme.typography.bodyLarge)
+            } else {
+                // Sem título local: o assunto faz as vezes dele, em itálico para não parecer um título definido.
+                Text(subject, style = MaterialTheme.typography.bodyLarge, fontStyle = FontStyle.Italic)
+            }
         }
     }
 }
