@@ -65,11 +65,38 @@ chamados export 559298 --sem-anexos -o ~/analise</pre>
 <pre class="term">chamados watch              <span class="c"># avisa de chamado novo, mudança de situação e mensagens</span>
 chamados watch --suporte    <span class="c"># acompanha a fila de suporte</span></pre>
 
-    <h2>Perfis e sincronização</h2>
+    <h2>Perfis</h2>
 <pre class="term">chamados profile list
 chamados profile init local --base-url http://localhost:8000 --username meu_usuario
-chamados --profile local login
-chamados sync key pair      <span class="c"># QR para parear o app</span></pre>
+chamados --profile local login</pre>
+
+    <h2 id="sincronizar">Sincronizar entre aparelhos</h2>
+    <p>A sincronização leva seus títulos e perfis para outros aparelhos, <strong>cifrados de ponta a ponta</strong> antes de saírem da máquina. Senhas, cookies de sessão e credenciais do bucket nunca são sincronizados.</p>
+<pre class="term">chamados sync setup --backend directory --path ~/Nuvem/chamados   <span class="c"># uma pasta (Drive, Dropbox, disco de rede)</span>
+chamados sync setup --backend r2 --endpoint https://&lt;ACCOUNT_ID&gt;.r2.cloudflarestorage.com --bucket meu-bucket
+chamados sync credentials set     <span class="c"># Access Key ID e Secret, guardados no chaveiro do sistema</span>
+chamados sync key generate        <span class="c"># gera a chave de cifra (só na primeira máquina)</span>
+chamados sync --check             <span class="c"># confere o destino e a chave, sem sincronizar</span>
+chamados sync                     <span class="c"># sincroniza (--dry-run mostra o que mudaria)</span>
+chamados sync key pair            <span class="c"># QR para parear o app Android</span>
+chamados sync automation          <span class="c"># mostra o agendamento periódico (--install no systemd)</span></pre>
+    <p>Para incluir um perfil na sincronização, use <code>chamados profile update --sync true</code> (começa desligado).</p>
+
+    <h3>Onde ficam as informações</h3>
+    <p>Tudo isto fica <strong>só nesta máquina</strong>; a nuvem recebe apenas o documento cifrado.</p>
+    <table>
+      <thead><tr><th>O quê</th><th>Onde</th></tr></thead>
+      <tbody>
+        <tr><td>Configuração da sincronização (destino, bucket, endpoint, origem da chave, sincronização automática)</td><td>seção <code>[sync]</code> de <code>~/.config/suap/config.toml</code> (no Windows, <code>C:\Users\&lt;você&gt;\.config\suap\config.toml</code>)</td></tr>
+        <tr><td>Chave de cifra</td><td>por padrão no chaveiro do sistema. Com <code>--key-source file</code>: <code>~/.config/suap/sync.key</code>. Também pode ser <code>protected-file</code> (arquivo com frase-senha) ou <code>env</code></td></tr>
+        <tr><td>Credenciais do bucket (<code>s3</code>/<code>r2</code>)</td><td>chaveiro do sistema (ou variáveis de ambiente); nunca no <code>config.toml</code></td></tr>
+        <tr><td>Títulos locais</td><td>pasta de dados do sistema: <code>titles.json</code> (perfil <code>default</code>) ou <code>titles-&lt;perfil&gt;.json</code></td></tr>
+        <tr><td>Controle da sincronização</td><td>na mesma pasta de dados: <code>sync.lock</code> (evita duas execuções ao mesmo tempo) e <code>removed-profiles.json</code> (perfis removidos nesta máquina)</td></tr>
+      </tbody>
+    </table>
+    <p>A pasta de dados é <code>%APPDATA%\suap-companion\chamados\data</code> no Windows, <code>~/.local/share/chamados</code> no Linux e <code>~/Library/Application Support/br.edu.ifrn.suap-companion.chamados</code> no macOS.</p>
+    <p><strong>Guarde a chave.</strong> Sem ela, o que foi cifrado fica ilegível. Para levá-la a outro computador, use <code>chamados sync key export</code> e, no destino, <code>chamados sync key import</code>; o QR de <code>sync key pair</code> também contém a chave, então mostre-o só a quem vai lê-lo.</p>
+
     <p>Quer o passo a passo de instalação? <a href="instalar-cli.html">Instalar o CLI</a>.</p>
 
   </main>
