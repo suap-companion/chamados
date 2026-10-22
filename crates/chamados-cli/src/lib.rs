@@ -2581,7 +2581,18 @@ fn describe_ai(settings: &AiSettings, out: &mut dyn Write) -> Result<(), Box<dyn
     Ok(())
 }
 
+/// An option given as blank text counts as not given.
+fn non_blank(value: Option<String>) -> Option<String> {
+    value.filter(|text| !text.trim().is_empty())
+}
+
 fn profile_ia(paths: &AppPaths, args: IaArgs, out: &mut dyn Write) -> Result<(), Box<dyn Error>> {
+    let args = IaArgs {
+        modelo: non_blank(args.modelo),
+        url: non_blank(args.url),
+        chave_env: non_blank(args.chave_env),
+        ..args
+    };
     let name = paths.profile();
     let file = ai::settings_file(paths.config_dir(), name);
     let current = AiSettings::load(&file)?;
@@ -7610,6 +7621,10 @@ segredo-que-vai-no-qr
         assert_eq!(ia(&["--provedor", "ninguem"]).0, 2);
         assert_eq!(ia(&["--remove", "--modelo", "x"]).0, 2);
 
+        // Blank options count as not given.
+        let (code, out, _) = ia(&["--provedor", "gemini", "--modelo", " ", "--url", ""]);
+        assert_eq!(code, 0);
+        assert!(out.contains("modelo: gemini-3.8-flash\n") && out.contains("googleapis.com"));
         std::env::set_var("CHAMADOS_TESTE_IA_DEFINIDA", "x");
         let (code, out, _) = ia(&[
             "--provedor",
@@ -7619,7 +7634,7 @@ segredo-que-vai-no-qr
         ]);
         assert_eq!(code, 0);
         assert!(out.contains("IA do perfil default salva em "), "{out}");
-        assert!(out.contains("provedor: gemini\nmodelo: gemini-2.5-flash\n"));
+        assert!(out.contains("provedor: gemini\nmodelo: gemini-3.8-flash\n"));
         assert!(out.contains("url: https://generativelanguage.googleapis.com/v1beta\n"));
         assert!(out.ends_with("chave: variável CHAMADOS_TESTE_IA_DEFINIDA (definida)\n"));
         // Changing one field keeps the others.

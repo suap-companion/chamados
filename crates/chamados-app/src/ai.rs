@@ -69,7 +69,7 @@ impl Provider {
 
     fn default_model(self) -> &'static str {
         match self {
-            Self::Gemini => "gemini-2.5-flash",
+            Self::Gemini => "gemini-3.8-flash",
             Self::Anthropic => "claude-haiku-5-5",
             Self::OpenAi => "gpt-4o-mini",
         }
@@ -475,7 +475,7 @@ mod tests {
             base_url: None,
             key_env: None,
         };
-        assert_eq!(plain.model(), "gemini-2.5-flash");
+        assert_eq!(plain.model(), "gemini-3.8-flash");
         assert!(plain.base_url().contains("generativelanguage"));
         assert_eq!(plain.key_env(), "GEMINI_API_KEY");
         let custom = AiSettings {
