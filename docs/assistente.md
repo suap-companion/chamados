@@ -57,6 +57,15 @@ Até a v0.54.8 o app podia baixar, com consentimento, um modelo local de reserva
 - **Ficam**: a IA do sistema (Gemini Nano, onde existir), o modelo pronto com `[preencher]` e os documentos de apoio.
 - **Nuvem** é *planejada, não implementada* (#144): ficaria **desativada por padrão**, com consentimento explícito, usando a chave de API da própria pessoa, sem enviar tokens do SUAP, credenciais nem documentos.
 
+## IA no CLI (`--AI`)
+
+O CLI reutiliza as regras do `chamados-assist` (privacidade interno × público, orçamento, limpeza), mas com **provedores de nuvem escolhidos por perfil** (`chamados profile ia`): Gemini, Anthropic e a API `chat/completions` da OpenAI (também falada por Ollama e OpenRouter). Não há modelo local no CLI.
+
+- **`crates/chamados-app/src/ai.rs`**: `AiSettings` (o `ia.json` do perfil, sem a chave), `draft_prompt`/`describe_prompt` (contexto a partir do `TicketDetails`), `generate` (HTTP com `reqwest`, 120 s) e `clean`. A chave vem da variável de ambiente do perfil (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` ou `--chave-env`) e nunca é gravada.
+- **Tipos de texto**: além dos do app, `Reclassify` (justificativa) e `Describe` (descrição de um chamado a abrir, sem chamado como contexto).
+- **Comandos**: `--AI [instrução]` em `title`, `comment`, `note`, `suspend`, `resolve`, `close`, `cancel`, `reopen`, `escalate`, `return`, `reclassify` e `open`; a instrução pode ser literal, `-` (entrada padrão) ou `@arquivo`. O texto gerado é mostrado e enviado em seguida. Veja o README.
+- **Privacidade**: o chamado sai da máquina só nos comandos com `--AI`; notas internas só entram em textos internos; erros nunca levam texto de chamado.
+
 ## Documentos de apoio (opcional)
 
 Além do chamado aberto, a pessoa pode importar **PDF, TXT e Markdown** (menu ⋮ › *Documentos de apoio*, ou Configurações › Assistente de IA). Ao escrever, o assistente busca nesses documentos os **trechos mais relevantes** para o chamado e os usa como apoio, **citando o arquivo e a página** (ex.: `(Manual.pdf, p. 3)`); a tela mostra "Documentos de apoio considerados: …". Sem documentos, ou sem trecho relevante, nada muda no pedido.

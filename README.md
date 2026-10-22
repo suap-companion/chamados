@@ -174,6 +174,27 @@ chamados title 559298 --remove           # remove
 
 O título tem uma única linha, de até 120 caracteres. Fica em `titles.json` no diretório de dados (`titles-<perfil>.json` nos demais perfis), com a hora de cada alteração e as remoções registradas, para permitir sincronização futura. Esse arquivo é dado seu: se estiver corrompido, o comando informa o erro em vez de descartá-lo.
 
+### Escrever com IA (`--AI`)
+
+Todo comando que escreve um texto aceita `--AI` (ou `--ai`) no lugar de `-m`: o título (`title`), o comentário (`comment`), a nota interna (`note`), `suspend`, `resolve`, `close`, `cancel`, `reopen`, `escalate`, `return`, `reclassify` e a descrição do `open`. A IA lê o chamado (descrição, histórico e título local), escreve o texto, o comando o mostra e **em seguida o envia** ao SUAP, como se você o tivesse digitado. Sem `--AI`, nada é mandado a nenhuma IA.
+
+```bash
+chamados profile ia --provedor gemini                  # uma vez por perfil (gemini, anthropic ou openai)
+export GEMINI_API_KEY=...                              # a chave vem do ambiente e nunca é gravada
+
+chamados title 559298 --AI                             # a IA parte só do chamado
+chamados title 559298 --AI "foque no problema de rede" # a instrução vai junto
+chamados comment 559298 --AI "avise que o patch sai amanhã"
+chamados resolve 559298 --AI - < o-que-fiz.txt         # instrução pela entrada padrão
+chamados resolve 559298 --AI @o-que-fiz.txt            # instrução lida de um arquivo
+chamados open --AI "wifi caiu na sala 3 do bloco B"    # a instrução é obrigatória: ainda não há chamado
+```
+
+- **Instrução:** sem valor, a IA usa só o chamado; com valor, ele é a instrução (o que dizer). `-` lê a entrada padrão e `@caminho` lê um arquivo. `--AI` e `-m` (ou `-d`, ou o texto do `title`) não valem juntos. `--AI` escreve para **um** chamado por vez (`comment`/`note` com vários números recusam).
+- **Provedor por perfil:** `chamados profile ia` define o provedor do perfil selecionado (`--profile`): `--provedor gemini|anthropic|openai`, `--modelo`, `--url` (útil para `openai` com Ollama, OpenRouter etc.) e `--chave-env` (nome da variável com a chave). Sem opções, mostra a configuração; `--remove` apaga. Padrões: Gemini (`gemini-3.8-flash`, `GEMINI_API_KEY`), Anthropic (`claude-haiku-5-5`, `ANTHROPIC_API_KEY`) e OpenAI (`gpt-4o-mini`, `OPENAI_API_KEY`). A configuração fica em `ia.json` (`ia-<perfil>.json` nos demais perfis), no diretório de configuração, e não é sincronizada.
+- **Privacidade:** o conteúdo do chamado **sai da sua máquina** para o provedor escolhido, só nos comandos com `--AI`. As regras são as do aplicativo (`chamados-assist`): as **notas internas só entram em textos internos** (`note`, `escalate`, `return`), nunca em comentário, resolução, título etc.; o pedido é limitado (~9000 caracteres, histórico mais recente primeiro). Senha, cookie e chave de sincronização nunca entram. Mensagens de erro não levam texto do chamado.
+- **Revisão:** o texto gerado é impresso antes do envio, mas o envio é imediato. Para conferir antes, gere com `title` (que só grava localmente) ou use `--AI` em um chamado de teste.
+
 ### Exportar um chamado como ZIP
 
 Para guardar o histórico ou entregar o conteúdo a uma análise (por exemplo, por IA), `chamados export` gera um ZIP com `chamado.md` (texto legível), `chamado.json` (dados estruturados, com o título local e a marca de arquivado) e a pasta `anexos/`:
@@ -471,7 +492,7 @@ Com `cron`: `*/5 * * * * flock -n ~/.cache/chamados-sync.lock chamados sync --qu
 
 - **RS-01 — Cobertura de testes de 100%.** Os testes automatizados do workspace devem cobrir 100% das linhas de código. A verificação roda no CI (`ci.yml`) e o build falha se a cobertura ficar abaixo disso. O ponto de entrada `main.rs` de cada binário deve conter apenas o encadeamento mínimo e é excluído da medição; toda a lógica fica em `lib.rs`, onde é testada.
 
-- **RS-02 — Entradas de texto aceitam várias linhas e a entrada padrão.** Toda entrada de texto livre do `chamados` (descrição, comentário, nota interna e mensagens de resolvido e de suspenso, e qualquer campo de texto livre futuro) aceita **várias linhas** e pode ser lida da **entrada padrão**: a opção do comando (`-d`/`-m`) recebe o texto, `-` lê o texto do stdin, e omitir a opção também lê o stdin. Só a quebra de linha final é removida, texto vazio é recusado antes de qualquer envio e um terminal interativo nunca é aguardado. A exceção é o título local (`chamados title`), que tem uma única linha por decisão de projeto. O requisito é verificado por teste para cada comando de texto (`rs02_every_text_input_accepts_multiple_lines_and_standard_input`), e outro teste obriga a classificar cada comando novo como "com texto" ou "sem texto".
+- **RS-02 — Entradas de texto aceitam várias linhas e a entrada padrão.** Toda entrada de texto livre do `chamados` (descrição, comentário, nota interna e mensagens de resolvido e de suspenso, e qualquer campo de texto livre futuro) aceita **várias linhas** e pode ser lida da **entrada padrão**: a opção do comando (`-d`/`-m`) recebe o texto, `-` lê o texto do stdin, e omitir a opção também lê o stdin. Só a quebra de linha final é removida, texto vazio é recusado antes de qualquer envio e um terminal interativo nunca é aguardado. A exceção é o título local (`chamados title`), que tem uma única linha por decisão de projeto. Em todo comando de texto, `--AI` pode escrever o texto no lugar de `-m`. O requisito é verificado por teste para cada comando de texto (`rs02_every_text_input_accepts_multiple_lines_and_standard_input`), e outro teste obriga a classificar cada comando novo como "com texto" ou "sem texto".
 
 - **RS-03 — Os dados do usuário são só do usuário.** Os títulos e as configurações dos perfis que saem da máquina (sincronização em nuvem) **não podem ser compartilhados de forma alguma**: (1) tudo que sai vai **cifrado**, com uma chave que nunca sai dos dispositivos do usuário; (2) sessões e cookies, a senha (`SUAP_PASSWORD`), as credenciais da nuvem e a própria chave **nunca** entram no conjunto sincronizado; (3) o `chamados` não usa recurso de compartilhamento do provedor (ACLs, links públicos ou pré-assinados, colaboradores) e exige `https` para o endpoint; (4) sem chave (ou sem credenciais), o `sync` recusa operar e **não envia nenhuma requisição**; (5) mensagens de erro nunca repetem credenciais. O requisito é verificado por testes: o conteúdo enviado ao bucket é varrido atrás de títulos, nome de usuário, cookies, a chave e o segredo da nuvem; as requisições são conferidas (sem ACL, sem query, sempre assinadas); e um teste-guarda obriga a classificar cada configuração nova como "sincroniza" ou "só local" (`rs03_every_setting_is_classified_as_synced_or_local_only`).
 

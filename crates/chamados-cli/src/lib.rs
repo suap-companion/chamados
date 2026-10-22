@@ -16,6 +16,7 @@ use std::{
 };
 
 use chamados_app::{
+    ai::{self, AiSettings, DraftKind, Provider},
     batch::send_messages,
     download::download_attachments,
     export::{export_file_name, export_ticket, ExportInfo},
@@ -196,6 +197,10 @@ enum Command {
         /// Comentário sobre a avaliação (várias linhas). Com `-`, lê a entrada padrão; omitido, fecha sem comentário.
         #[arg(long, short = 'm')]
         message: Option<String>,
+        /// Gera o comentário com IA (veja `profile ia`): sem valor, a IA parte só do chamado; com valor, ele é a
+        /// instrução (`-` lê a entrada padrão, `@arquivo` lê um arquivo). Não vale junto com -m.
+        #[arg(long = "AI", visible_alias = "ai", num_args = 0..=1, default_missing_value = "", value_name = "INSTRUÇÃO", conflicts_with = "message")]
+        ai: Option<String>,
     },
     /// Cancela um chamado (situação "Cancelado"), com o motivo. Não pode ser desfeito.
     Cancel {
@@ -217,6 +222,10 @@ enum Command {
         /// Remove o título local.
         #[arg(long)]
         remove: bool,
+        /// Gera o título com IA (veja `profile ia`): sem valor, a IA parte só do chamado; com valor, ele é a
+        /// instrução (`-` lê a entrada padrão, `@arquivo` lê um arquivo).
+        #[arg(long = "AI", visible_alias = "ai", num_args = 0..=1, default_missing_value = "", value_name = "INSTRUÇÃO", conflicts_with_all = ["text", "remove"])]
+        ai: Option<String>,
     },
     /// Exporta o chamado como um ZIP (chamado.md legível, chamado.json estruturado e a pasta anexos/),
     /// útil para guardar o histórico ou para análise por IA.
@@ -289,12 +298,34 @@ enum ProfileCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Define, exibe ou remove o provedor de IA do perfil selecionado por --profile (usado por --AI).
+    Ia(IaArgs),
     /// Lista os perfis configurados.
     List {
         /// Imprime JSON (para scripts) em vez de texto.
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Debug, Args)]
+struct IaArgs {
+    /// Provedor: `gemini`, `anthropic` ou `openai` (a API de `chat/completions`, que Ollama e outros também falam).
+    #[arg(long, value_parser = PossibleValuesParser::new(Provider::NAMES))]
+    provedor: Option<String>,
+    /// Modelo (por padrão, o do provedor).
+    #[arg(long)]
+    modelo: Option<String>,
+    /// Endereço da API (por padrão, o do provedor).
+    #[arg(long)]
+    url: Option<String>,
+    /// Variável de ambiente com a chave da API (por padrão, GEMINI_API_KEY, ANTHROPIC_API_KEY ou OPENAI_API_KEY).
+    /// A chave nunca é gravada.
+    #[arg(long)]
+    chave_env: Option<String>,
+    /// Remove a configuração de IA do perfil.
+    #[arg(long, conflicts_with_all = ["provedor", "modelo", "url", "chave_env"])]
+    remove: bool,
 }
 
 #[derive(Debug, Args)]
@@ -465,6 +496,10 @@ struct BatchMessageArgs {
     /// Texto (pode ter várias linhas). Com `-` ou omitido, é lido da entrada padrão.
     #[arg(long, short = 'm')]
     message: Option<String>,
+    /// Gera o texto com IA (veja `profile ia`): sem valor, a IA parte só do chamado; com valor, ele é a
+    /// instrução (`-` lê a entrada padrão, `@arquivo` lê um arquivo). Não vale junto com -m.
+    #[arg(long = "AI", visible_alias = "ai", num_args = 0..=1, default_missing_value = "", value_name = "INSTRUÇÃO", conflicts_with = "message")]
+    ai: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -474,6 +509,10 @@ struct MessageArgs {
     /// Texto (pode ter várias linhas). Com `-` ou omitido, é lido da entrada padrão.
     #[arg(long, short = 'm')]
     message: Option<String>,
+    /// Gera o texto com IA (veja `profile ia`): sem valor, a IA parte só do chamado; com valor, ele é a
+    /// instrução (`-` lê a entrada padrão, `@arquivo` lê um arquivo). Não vale junto com -m.
+    #[arg(long = "AI", visible_alias = "ai", num_args = 0..=1, default_missing_value = "", value_name = "INSTRUÇÃO", conflicts_with = "message")]
+    ai: Option<String>,
 }
 
 /// The readable names of a table of options, for clap to accept and list.
@@ -660,6 +699,15 @@ struct OpenArgs {
     /// Descrição (pode ter várias linhas). Com `-` ou omitida, é lida da entrada padrão.
     #[arg(long, short)]
     description: Option<String>,
+    /// Gera a descrição com IA (veja `profile ia`) a partir da instrução (`-` lê a entrada padrão, `@arquivo`
+    /// lê um arquivo). Não vale junto com -d.
+    #[arg(
+        long = "AI",
+        visible_alias = "ai",
+        value_name = "INSTRUÇÃO",
+        conflicts_with = "description"
+    )]
+    ai: Option<String>,
     /// Campus (id da unidade organizacional); por padrão, o do perfil ou o do usuário.
     #[arg(long)]
     campus: Option<String>,
@@ -792,7 +840,9 @@ where
 /// Whether the command changes data that is synchronized.
 fn changes_synced_data(command: &Option<Command>) -> bool {
     match command {
-        Some(Command::Title { text, remove, .. }) => text.is_some() || *remove,
+        Some(Command::Title {
+            text, remove, ai, ..
+        }) => text.is_some() || *remove || ai.is_some(),
         Some(Command::Archive { .. } | Command::Unarchive { .. }) => true,
         Some(Command::Snooze(_) | Command::Unsnooze { .. }) => true,
         Some(Command::Profile { command }) => matches!(
@@ -869,6 +919,7 @@ fn dispatch(
             ProfileCommand::Update(args) => profile_update(paths, args, out),
             ProfileCommand::Remove { name, yes } => profile_remove(paths, &name, yes, out),
             ProfileCommand::Show { name, json } => profile_show(paths, name.as_deref(), json, out),
+            ProfileCommand::Ia(args) => profile_ia(paths, args, out),
             ProfileCommand::List { json } => profile_list(paths, json, style, out),
         },
         Some(Command::SessionStatus) => session_status(paths, out),
@@ -912,11 +963,21 @@ fn dispatch(
         Some(Command::Tag { command }) => tag(paths, command, out),
         Some(Command::Interested { command }) => interested(paths, command, out),
         Some(Command::Reopen(args)) => reopen(paths, args, input, out),
-        Some(Command::Close { id, nota, message }) => close(paths, id, nota, message, input, out),
+        Some(Command::Close {
+            id,
+            nota,
+            message,
+            ai,
+        }) => close(paths, id, nota, message, ai, input, out),
         Some(Command::Assume { id }) => assume(paths, id, out),
         Some(Command::Start { id, assume }) => start(paths, id, assume, out),
         Some(Command::Cancel { message, yes }) => cancel(paths, message, yes, input, out),
-        Some(Command::Title { id, text, remove }) => title(paths, id, text, remove, out),
+        Some(Command::Title {
+            id,
+            text,
+            remove,
+            ai,
+        }) => title(paths, id, text, remove, ai, input, out),
         Some(Command::Export {
             id,
             output,
@@ -1397,7 +1458,21 @@ fn send_message(
     input: &mut dyn Read,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
-    let text = read_text(args.message, input)?;
+    let text = match args.ai {
+        Some(instruction) => {
+            let [id] = args.ids[..] else {
+                return Err(
+                    "--AI escreve o texto de um chamado por vez: informe só um número".into(),
+                );
+            };
+            let draft = match kind {
+                Message::Comment => DraftKind::Comment,
+                Message::InternalNote => DraftKind::InternalNote,
+            };
+            ai_text(paths, Some(id), draft, &instruction, input, out)?
+        }
+        None => read_text(args.message, input)?,
+    };
     let (runtime, client) = connect(paths)?;
     let source = SuapTicketSource::new(&client, TicketQueue::Support);
     let report = runtime
@@ -1449,7 +1524,8 @@ fn suspend(
     input: &mut dyn Read,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
-    let text = read_text(args.message, input)?;
+    let kind = DraftKind::Suspend;
+    let text = compose_text(paths, args.id, kind, args.message, args.ai, input, out)?;
     let (runtime, client) = connect(paths)?;
     let source = SuapTicketSource::new(&client, TicketQueue::Support);
     let id = args.id.to_string();
@@ -1527,10 +1603,23 @@ fn hand_off(
     input: &mut dyn Read,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
-    let text = read_text(args.message.message, input)?;
+    let kind = match direction {
+        Direction::Escalate => DraftKind::Escalate,
+        Direction::Return => DraftKind::Return,
+    };
+    let message = args.message;
+    let text = compose_text(
+        paths,
+        message.id,
+        kind,
+        message.message,
+        message.ai,
+        input,
+        out,
+    )?;
     let (runtime, client) = connect(paths)?;
     let source = SuapTicketSource::new(&client, TicketQueue::Support);
-    let id = args.message.id.to_string();
+    let id = message.id.to_string();
     runtime
         .block_on(source.move_ticket(&id, direction, &text, args.para.as_deref()))
         .map_err(explain)?;
@@ -1549,7 +1638,8 @@ fn reclassify(
     input: &mut dyn Read,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
-    let text = read_text(args.message, input)?;
+    let kind = DraftKind::Reclassify;
+    let text = compose_text(paths, args.id, kind, args.message, args.ai, input, out)?;
     let (runtime, client) = connect(paths)?;
     let source = SuapTicketSource::new(&client, TicketQueue::Support);
     let id = args.id.to_string();
@@ -1612,7 +1702,8 @@ fn reopen(
     input: &mut dyn Read,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
-    let text = read_text(args.message, input)?;
+    let kind = DraftKind::Reopen;
+    let text = compose_text(paths, args.id, kind, args.message, args.ai, input, out)?;
     let (runtime, client) = connect(paths)?;
     let source = SuapTicketSource::new(&client, TicketQueue::Support);
     let id = args.id.to_string();
@@ -1628,10 +1719,17 @@ fn close(
     id: u64,
     rating: Option<u8>,
     message: Option<String>,
+    ai: Option<String>,
     input: &mut dyn Read,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
-    let comment = read_optional_text(message, input)?;
+    let comment = match ai {
+        Some(instruction) => {
+            let kind = DraftKind::Close;
+            Some(ai_text(paths, Some(id), kind, &instruction, input, out)?)
+        }
+        None => read_optional_text(message, input)?,
+    };
     let (runtime, client) = connect(paths)?;
     let source = SuapTicketSource::new(&client, TicketQueue::Support);
     let id = id.to_string();
@@ -1689,7 +1787,8 @@ fn cancel(
         )
         .into());
     }
-    let text = read_text(args.message, input)?;
+    let kind = DraftKind::Cancel;
+    let text = compose_text(paths, args.id, kind, args.message, args.ai, input, out)?;
     let (runtime, client) = connect(paths)?;
     let source = SuapTicketSource::new(&client, TicketQueue::Support);
     let id = args.id.to_string();
@@ -1706,15 +1805,26 @@ fn resolve(
     input: &mut dyn Read,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
+    let message = args.message;
+    let kind = DraftKind::Resolve;
+    let text = compose_text(
+        paths,
+        message.id,
+        kind,
+        message.message,
+        message.ai,
+        input,
+        out,
+    )?;
     let resolution = Resolution {
-        text: read_text(args.message.message, input)?,
+        text,
         articles: args.article,
         also: args.also.iter().map(u64::to_string).collect(),
         standard_reply: args.standard_reply,
     };
     let (runtime, client) = connect(paths)?;
     let source = SuapTicketSource::new(&client, TicketQueue::Support);
-    let id = args.message.id.to_string();
+    let id = message.id.to_string();
     runtime
         .block_on(source.resolve_ticket(&id, &resolution))
         .map_err(explain)?;
@@ -2334,8 +2444,17 @@ fn title(
     id: u64,
     text: Option<String>,
     remove: bool,
+    ai: Option<String>,
+    input: &mut dyn Read,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
+    let text = match ai {
+        Some(instruction) => {
+            let kind = DraftKind::Title;
+            Some(ai_text(paths, Some(id), kind, &instruction, input, out)?)
+        }
+        None => text,
+    };
     let mut titles = TitleStore::open(paths.titles_file())?;
     let id = id.to_string();
     if remove {
@@ -2359,6 +2478,162 @@ fn title(
         writeln!(out, "{message}")?;
     }
     Ok(())
+}
+
+const NO_AI: &str = "IA não configurada neste perfil: execute `chamados profile ia --provedor gemini|anthropic|openai`";
+
+/// The instruction given to the AI: the text itself, `-` for standard input or `@file`; blank is "none".
+fn ai_hint(instruction: &str, input: &mut dyn Read) -> Result<Option<String>, Box<dyn Error>> {
+    let text = if instruction == "-" {
+        raw_text(None, input)?
+    } else if let Some(file) = instruction.strip_prefix('@') {
+        fs::read_to_string(file)
+            .map_err(|error| format!("não foi possível ler a instrução {file}: {error}"))?
+    } else {
+        instruction.to_owned()
+    };
+    let text = text.trim();
+    Ok((!text.is_empty()).then(|| text.to_owned()))
+}
+
+/// Writes `kind` with the AI of the profile, from the ticket `id` (or from the instruction alone when
+/// there is no ticket yet) and shows the text; the caller sends it. The key comes from the environment.
+fn ai_text(
+    paths: &AppPaths,
+    id: Option<u64>,
+    kind: DraftKind,
+    instruction: &str,
+    input: &mut dyn Read,
+    out: &mut dyn Write,
+) -> Result<String, Box<dyn Error>> {
+    let hint = ai_hint(instruction, input)?;
+    if id.is_none() && hint.is_none() {
+        return Err("descreva o chamado: --AI precisa de uma instrução".into());
+    }
+    let file = ai::settings_file(paths.config_dir(), paths.profile());
+    let settings = AiSettings::load(&file)?.ok_or(NO_AI)?;
+    let key = settings.api_key(&|name| std::env::var(name).ok())?;
+    let (runtime, prompt) = match id {
+        Some(id) => {
+            let (runtime, client) = connect(paths)?;
+            let source = SuapTicketSource::new(&client, TicketQueue::Support);
+            let id = id.to_string();
+            let details = runtime.block_on(source.get_ticket(&id)).map_err(explain)?;
+            let titles = TitleStore::open(paths.titles_file())?;
+            let prompt = ai::draft_prompt(kind, &details, titles.get(&id), hint.as_deref());
+            (runtime, prompt)
+        }
+        None => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            (runtime, ai::describe_prompt(hint.as_deref()))
+        }
+    };
+    let raw = runtime.block_on(ai::generate(&settings, &key, &prompt.text))?;
+    let text = ai::clean(kind, &raw)?;
+    let header = format!(
+        "Texto gerado pela IA ({}, {}):",
+        settings.provider.name(),
+        settings.model()
+    );
+    writeln!(out, "{header}")?;
+    writeln!(out, "{text}")?;
+    if prompt.truncated {
+        let warning = "aviso: parte do chamado ficou fora do pedido à IA (texto longo demais).";
+        writeln!(out, "{warning}")?;
+    }
+    Ok(text)
+}
+
+/// The text of a command: given with `-m` (or standard input), or written by the AI with `--AI`.
+fn compose_text(
+    paths: &AppPaths,
+    id: u64,
+    kind: DraftKind,
+    message: Option<String>,
+    ai: Option<String>,
+    input: &mut dyn Read,
+    out: &mut dyn Write,
+) -> Result<String, Box<dyn Error>> {
+    match ai {
+        Some(instruction) => ai_text(paths, Some(id), kind, &instruction, input, out),
+        None => read_text(message, input),
+    }
+}
+
+fn describe_ai(settings: &AiSettings, out: &mut dyn Write) -> Result<(), Box<dyn Error>> {
+    let key_env = settings.key_env();
+    let key = if std::env::var_os(key_env).is_some() {
+        "definida"
+    } else {
+        "não definida"
+    };
+    let lines = [
+        format!("provedor: {}", settings.provider.name()),
+        format!("modelo: {}", settings.model()),
+        format!("url: {}", settings.base_url()),
+        format!("chave: variável {key_env} ({key})"),
+    ];
+    for line in lines {
+        writeln!(out, "{line}")?;
+    }
+    Ok(())
+}
+
+/// An option given as blank text counts as not given.
+fn non_blank(value: Option<String>) -> Option<String> {
+    value.filter(|text| !text.trim().is_empty())
+}
+
+fn profile_ia(paths: &AppPaths, args: IaArgs, out: &mut dyn Write) -> Result<(), Box<dyn Error>> {
+    let args = IaArgs {
+        modelo: non_blank(args.modelo),
+        url: non_blank(args.url),
+        chave_env: non_blank(args.chave_env),
+        ..args
+    };
+    let name = paths.profile();
+    let file = ai::settings_file(paths.config_dir(), name);
+    let current = AiSettings::load(&file)?;
+    if args.remove {
+        let message = if AiSettings::remove(&file)? {
+            format!("IA do perfil {name} removida.")
+        } else {
+            format!("O perfil {name} não tinha IA configurada.")
+        };
+        writeln!(out, "{message}")?;
+        return Ok(());
+    }
+    let changing = args.provedor.is_some()
+        || args.modelo.is_some()
+        || args.url.is_some()
+        || args.chave_env.is_some();
+    if !changing {
+        let Some(settings) = current else {
+            writeln!(out, "{NO_AI}")?;
+            return Ok(());
+        };
+        return describe_ai(&settings, out);
+    }
+    let provider = args.provedor.as_deref().and_then(Provider::parse);
+    let provider = provider.or(current.as_ref().map(|settings| settings.provider));
+    let provider = provider.ok_or("informe o provedor: --provedor gemini|anthropic|openai")?;
+    let before = current.unwrap_or(AiSettings {
+        provider,
+        model: None,
+        base_url: None,
+        key_env: None,
+    });
+    let settings = AiSettings {
+        provider,
+        model: args.modelo.or(before.model),
+        base_url: args.url.or(before.base_url),
+        key_env: args.chave_env.or(before.key_env),
+    };
+    settings.save(&file)?;
+    writeln!(out, "IA do perfil {name} salva em {}", file.display())?;
+    describe_ai(&settings, out)
 }
 
 /// Text given as an option value, or read from `input` when the value is `-` or missing, without
@@ -2452,9 +2727,13 @@ fn open(
     }
     let local_title = args.title.as_deref().map(validate_title).transpose()?;
     let mut titles = TitleStore::open(paths.titles_file())?;
+    let description = match args.ai {
+        Some(instruction) => ai_text(paths, None, DraftKind::Describe, &instruction, input, out)?,
+        None => read_text(args.description, input)?,
+    };
     let ticket = NewTicket {
         service_id,
-        description: read_text(args.description, input)?,
+        description,
         campus: args.campus.or_else(|| defaults.campus.clone()),
         center: args.center.or_else(|| defaults.center.clone()),
         interested,
@@ -7091,5 +7370,294 @@ segredo-que-vai-no-qr
         assert_eq!(code, 1);
         assert!(String::from_utf8(err).unwrap().contains("closed"));
         FailingWriter.flush().unwrap();
+    }
+
+    const AI_KEY_ENV: &str = "CHAMADOS_TESTE_IA_CHAVE";
+    const AI_ANSWER: &str = r#"{"choices":[{"message":{"content":"```\nTexto da IA\n```"}}]}"#;
+
+    /// `text_requirement_setup` with an AI profile (OpenAI-compatible) answering on the same mock server.
+    fn ai_setup() -> (TempDir, AppPaths, tokio::runtime::Runtime, MockServer) {
+        let (dir, paths, runtime, server) = text_requirement_setup();
+        std::env::set_var(AI_KEY_ENV, "chave-de-teste");
+        let uri = server.uri();
+        let args = [
+            "profile",
+            "ia",
+            "--provedor",
+            "openai",
+            "--url",
+            &uri,
+            "--modelo",
+            "m1",
+            "--chave-env",
+            AI_KEY_ENV,
+        ];
+        assert_eq!(run_args(&args, &paths).0, 0);
+        let answer = ResponseTemplate::new(200).set_body_string(AI_ANSWER);
+        mount_text(&runtime, &server, "POST", "/chat/completions", answer);
+        // A page the ticket parser accepts (the forms of THREAD_PAGE alone are not a ticket).
+        let ticket = format!(
+            r#"<main id="content"><div class="title-container"><h2>Chamado 5</h2></div>{THREAD_PAGE}</main>"#
+        );
+        let page = ResponseTemplate::new(200).set_body_string(ticket);
+        let first = Mock::given(method("GET")).and(path("/centralservicos/chamado/5/"));
+        runtime.block_on(first.respond_with(page).with_priority(2).mount(&server));
+        (dir, paths, runtime, server)
+    }
+
+    fn ai_requests(runtime: &tokio::runtime::Runtime, server: &MockServer) -> Vec<String> {
+        posts_to(runtime, server, "/chat/completions")
+    }
+
+    #[test]
+    fn ai_writes_the_text_of_every_command_and_the_command_sends_it() {
+        let (_dir, paths, runtime, server) = ai_setup();
+        let generated = "Texto gerado pela IA (openai, m1):\nTexto da IA\n";
+        for (command, _, field, post_path) in TEXT_COMMANDS {
+            let args = [command, &["--AI", "a fila parou"]].concat();
+            let (code, out, err) = run_args(&args, &paths);
+            assert_eq!((code, err.as_str()), (0, ""), "{command:?}");
+            assert!(out.starts_with(generated), "{command:?}: {out}");
+            let posts = posts_to(&runtime, &server, post_path);
+            let expected = format!("{field}=Texto+da+IA");
+            assert!(posts.last().unwrap().contains(&expected), "{command:?}");
+        }
+        // close: the comment is optional, and the AI can write it too.
+        let (code, out, err) = run_args(&["close", "5", "--AI", "atendimento ótimo"], &paths);
+        assert_eq!((code, err.as_str()), (0, ""));
+        assert!(out.starts_with(generated) && out.ends_with("Chamado #5 fechado.\n"));
+        let posts = posts_to(&runtime, &server, "/centralservicos/fechar_chamado/5/");
+        assert!(posts[0].contains("comentario=Texto+da+IA"));
+
+        // The request carries the ticket and the instruction, in the model the profile chose.
+        let requests = ai_requests(&runtime, &server);
+        assert_eq!(requests.len(), TEXT_COMMANDS.len() + 1);
+        let comment = &requests[1];
+        assert!(comment.contains(r#""model":"m1""#));
+        assert!(comment.contains("Chamado #5") && comment.contains("a fila parou"));
+        assert!(comment.contains("comentário público"));
+    }
+
+    #[test]
+    fn the_ai_instruction_comes_from_the_option_standard_input_or_a_file() {
+        let (dir, paths, runtime, server) = ai_setup();
+        let file = dir.path().join("instrucao.txt");
+        std::fs::write(&file, "  pedir o patrimônio\ne a sala  \n").unwrap();
+        let from_file = format!("@{}", file.display());
+        let runs = [
+            (vec!["comment", "5", "--ai", "pela opção"], ""),
+            (vec!["comment", "5", "--AI", "-"], "pelo stdin\r\n"),
+            (vec!["comment", "5", "--AI", from_file.as_str()], ""),
+            (vec!["comment", "5", "--AI"], ""),
+            (vec!["comment", "5", "--AI", "   "], ""),
+        ];
+        for (args, stdin) in runs {
+            let (code, _, err) = run_with_input(&args, &paths, stdin);
+            assert_eq!((code, err.as_str()), (0, ""), "{args:?}");
+        }
+        let requests = ai_requests(&runtime, &server);
+        let hint = "O que a pessoa quer dizer: ";
+        assert!(requests[0].contains(&format!("{hint}pela opção")));
+        assert!(requests[1].contains(&format!("{hint}pelo stdin")));
+        assert!(requests[2].contains(&format!("{hint}pedir o patrimônio e a sala")));
+        assert!(!requests[3].contains(hint) && !requests[4].contains(hint));
+
+        let (code, _, err) = run_args(&["comment", "5", "--AI", "@nao-existe.txt"], &paths);
+        assert_eq!(code, 1);
+        assert!(
+            err.contains("não foi possível ler a instrução nao-existe.txt"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_long_instruction_is_reported_as_cut() {
+        let (_dir, paths, _runtime, _server) = ai_setup();
+        let long = "palavra ".repeat(200);
+        let (code, out, _) = run_args(&["comment", "5", "--AI", &long], &paths);
+        assert_eq!(code, 0);
+        assert!(
+            out.contains("aviso: parte do chamado ficou fora do pedido à IA"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn ai_refuses_what_it_cannot_do_before_changing_anything() {
+        let (_dir, paths, runtime, server) = ai_setup();
+        let comments = || {
+            posts_to(
+                &runtime,
+                &server,
+                "/centralservicos/adicionar_comentario/5/",
+            )
+        };
+        let fails = |args: &[&str]| {
+            let (code, _, err) = run_args(args, &paths);
+            assert_eq!(code, 1, "{args:?}");
+            err
+        };
+        let err = fails(&["comment", "5", "6", "--AI", "x"]);
+        assert!(err.contains("um chamado por vez"), "{err}");
+        let err = fails(&["open", "--AI", "   "]);
+        assert!(err.contains("--AI precisa de uma instrução"), "{err}");
+        // The profile has no key in the environment variable it names.
+        run_args(
+            &["profile", "ia", "--chave-env", "CHAMADOS_TESTE_SEM_CHAVE"],
+            &paths,
+        );
+        let err = fails(&["comment", "5", "--AI", "x"]);
+        assert!(
+            err.contains("defina a variável de ambiente CHAMADOS_TESTE_SEM_CHAVE"),
+            "{err}"
+        );
+        run_args(&["profile", "ia", "--chave-env", AI_KEY_ENV], &paths);
+        // -m and --AI exclude each other; --AI and the title text too.
+        for args in [
+            &["comment", "5", "-m", "x", "--AI"][..],
+            &["open", "-d", "x", "--AI", "y"],
+            &["title", "5", "x", "--AI"],
+            &["title", "5", "--remove", "--AI"],
+            &["close", "5", "-m", "x", "--AI"],
+        ] {
+            assert_eq!(run_args(args, &paths).0, 2, "{args:?}");
+        }
+        // The AI answers nothing usable, or fails.
+        let empty = ResponseTemplate::new(200)
+            .set_body_string(r#"{"choices":[{"message":{"content":" "}}]}"#);
+        let first = Mock::given(method("POST")).and(path("/chat/completions"));
+        runtime.block_on(
+            first
+                .respond_with(empty)
+                .with_priority(1)
+                .up_to_n_times(1)
+                .mount(&server),
+        );
+        let err = fails(&["comment", "5", "--AI"]);
+        assert!(err.contains("a IA não devolveu texto"), "{err}");
+        let down = ResponseTemplate::new(503).set_body_string("fora");
+        let first = Mock::given(method("POST")).and(path("/chat/completions"));
+        runtime.block_on(first.respond_with(down).with_priority(1).mount(&server));
+        let err = fails(&["comment", "5", "--AI"]);
+        assert!(err.contains("a IA (openai) respondeu HTTP 503"), "{err}");
+        assert!(comments().is_empty());
+    }
+
+    #[test]
+    fn ai_needs_a_configured_provider_and_a_ticket_page() {
+        let (_dir, paths, _runtime, server) = text_requirement_setup();
+        let (code, _, err) = run_args(&["comment", "5", "--AI"], &paths);
+        assert_eq!(code, 1);
+        assert!(err.contains("IA não configurada neste perfil"), "{err}");
+        // A broken ia.json is reported with its path.
+        std::fs::write(ai::settings_file(paths.config_dir(), "default"), "{").unwrap();
+        let (code, _, err) = run_args(&["comment", "5", "--AI"], &paths);
+        assert_eq!(code, 1);
+        assert!(err.contains("ia.json inválido"), "{err}");
+        // The ticket is not found in SUAP.
+        std::fs::remove_file(ai::settings_file(paths.config_dir(), "default")).unwrap();
+        std::env::set_var(AI_KEY_ENV, "chave-de-teste");
+        let uri = server.uri();
+        let args = [
+            "profile",
+            "ia",
+            "--provedor",
+            "gemini",
+            "--url",
+            &uri,
+            "--chave-env",
+            AI_KEY_ENV,
+        ];
+        assert_eq!(run_args(&args, &paths).0, 0);
+        let (code, _, err) = run_args(&["comment", "9", "--AI"], &paths);
+        assert_eq!(code, 1);
+        assert!(err.contains("unexpected status 404"), "{err}");
+    }
+
+    #[test]
+    fn title_can_be_written_by_the_ai_and_is_saved_locally() {
+        let (_dir, paths, runtime, server) = ai_setup();
+        let (code, out, err) = run_args(&["title", "5", "--AI"], &paths);
+        assert_eq!((code, err.as_str()), (0, ""));
+        assert_eq!(
+            out,
+            "Texto gerado pela IA (openai, m1):\nTexto da IA\nTítulo local do chamado #5 salvo.\n"
+        );
+        let (_, out, _) = run_args(&["title", "5"], &paths);
+        assert_eq!(out, "Texto da IA\n");
+        // The local title is part of the context of later requests; the instruction guides the new one.
+        let (code, _, _) = run_args(&["title", "5", "--ai", "foque no wifi"], &paths);
+        assert_eq!(code, 0);
+        let requests = ai_requests(&runtime, &server);
+        assert!(!requests[0].contains("Título: "));
+        assert!(requests[1].contains("Título: Texto da IA"));
+        assert!(requests[1].contains("O que a pessoa quer dizer: foque no wifi"));
+        assert!(requests[1].contains("título curto"));
+    }
+
+    #[test]
+    fn a_new_ticket_can_have_its_description_written_by_the_ai() {
+        let (_dir, paths, runtime, server) = ai_setup();
+        let (code, out, err) = run_args(&["open", "--AI", "wifi caiu na sala 3"], &paths);
+        assert_eq!((code, err.as_str()), (0, ""));
+        assert!(out.contains("Texto da IA") && out.contains("Chamado #99 aberto"));
+        let request = &ai_requests(&runtime, &server)[0];
+        assert!(request.contains("descrição de um chamado novo"));
+        assert!(request.contains("wifi caiu na sala 3") && !request.contains("Chamado #"));
+        let posts = posts_to(&runtime, &server, "/centralservicos/abrir_chamado/7/");
+        assert!(posts[0].contains("descricao=Texto+da+IA"));
+    }
+
+    #[test]
+    fn profile_ia_sets_shows_updates_and_removes_the_provider() {
+        let (_dir, paths) = paths();
+        let ia = |args: &[&str]| run_args(&[&["profile", "ia"], args].concat(), &paths);
+        let (code, out, _) = ia(&[]);
+        assert_eq!(code, 0);
+        assert!(out.contains("IA não configurada neste perfil"));
+        let (code, _, err) = ia(&["--modelo", "x"]);
+        assert_eq!(code, 1);
+        assert!(err.contains("informe o provedor"), "{err}");
+        assert_eq!(ia(&["--provedor", "ninguem"]).0, 2);
+        assert_eq!(ia(&["--remove", "--modelo", "x"]).0, 2);
+
+        // Blank options count as not given.
+        let (code, out, _) = ia(&["--provedor", "gemini", "--modelo", " ", "--url", ""]);
+        assert_eq!(code, 0);
+        assert!(out.contains("modelo: gemini-3.8-flash\n") && out.contains("googleapis.com"));
+        std::env::set_var("CHAMADOS_TESTE_IA_DEFINIDA", "x");
+        let (code, out, _) = ia(&[
+            "--provedor",
+            "gemini",
+            "--chave-env",
+            "CHAMADOS_TESTE_IA_DEFINIDA",
+        ]);
+        assert_eq!(code, 0);
+        assert!(out.contains("IA do perfil default salva em "), "{out}");
+        assert!(out.contains("provedor: gemini\nmodelo: gemini-3.8-flash\n"));
+        assert!(out.contains("url: https://generativelanguage.googleapis.com/v1beta\n"));
+        assert!(out.ends_with("chave: variável CHAMADOS_TESTE_IA_DEFINIDA (definida)\n"));
+        // Changing one field keeps the others.
+        let (_, out, _) = ia(&["--modelo", "gemini-pro"]);
+        assert!(out.contains("modelo: gemini-pro\n") && out.contains("CHAMADOS_TESTE_IA_DEFINIDA"));
+        let (_, out, _) = ia(&[
+            "--provedor",
+            "anthropic",
+            "--chave-env",
+            "CHAMADOS_TESTE_IA_AUSENTE",
+        ]);
+        assert!(out.contains("provedor: anthropic\nmodelo: gemini-pro\n"));
+        assert!(out.ends_with("(não definida)\n"));
+        // The configuration belongs to the profile selected with --profile.
+        let other = run_args(&["--profile", "outro", "profile", "ia"], &paths).1;
+        assert!(other.contains("IA não configurada"));
+        let (code, out, _) = ia(&[]);
+        assert_eq!(code, 0);
+        assert!(out.starts_with("provedor: anthropic"), "{out}");
+        assert_eq!(ia(&["--remove"]).1, "IA do perfil default removida.\n");
+        assert_eq!(
+            ia(&["--remove"]).1,
+            "O perfil default não tinha IA configurada.\n"
+        );
     }
 }

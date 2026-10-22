@@ -56,6 +56,13 @@ chamados snooze 559298 --em 3h
 chamados list --adiados
 chamados list --arquivados</pre>
 
+    <h2>Escrever com IA</h2>
+    <p>Com <code>--AI</code> no lugar de <code>-m</code>, a IA escreve o texto a partir do chamado e o comando o envia. Escolha o provedor uma vez por perfil (<code>gemini</code>, <code>anthropic</code> ou <code>openai</code>); a chave vem de uma variável de ambiente e nunca é gravada. O conteúdo do chamado só sai da sua máquina nos comandos com <code>--AI</code>, e as notas internas só entram em textos internos.</p>
+<pre class="term">chamados profile ia --provedor gemini
+chamados title 559298 --AI                              <span class="c"># título só a partir do chamado</span>
+chamados comment 559298 --AI "avise que sai amanhã"     <span class="c"># com a sua instrução</span>
+chamados resolve 559298 --AI @o-que-fiz.txt             <span class="c"># instrução lida de um arquivo (ou - para a entrada padrão)</span></pre>
+
     <h2>Exportar para a IA</h2>
     <p>O comando gera um ZIP com <code>chamado.md</code> (texto legível), <code>chamado.json</code> (dados estruturados) e a pasta <code>anexos/</code>: ideal para entregar a um assistente de IA analisar. Nada de sessão ou cookie vai no ZIP.</p>
 <pre class="term">chamados export 559298
