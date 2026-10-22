@@ -99,7 +99,7 @@ cargo run -p chamados-cli -- list           # fila de suporte (menu "Chamados")
 cargo run -p chamados-cli -- list --meus    # "Meus chamados" ativos
 ```
 
-Se a sessão estiver ausente ou expirada, o comando orienta a executar `chamados login`.
+Se a sessão estiver ausente ou expirada, o comando **refaz o login sozinho e roda de novo, uma única vez**, desde que a variável `SUAP_PASSWORD` esteja definida e o perfil tenha o usuário salvo (`chamados profile update --username <usuário>`); a senha continua só no ambiente, nunca em arquivo. A linha "Sessão expirada: refazendo o login…" vai para o erro padrão (não suja a saída `--json`). Se faltar a senha ou o usuário, a mensagem diz o que falta e orienta `chamados login`; se o login falhar, mostra o erro dele e não repete. A requisição que encontra a sessão expirada termina na página de login e nunca chega ao SUAP, então repetir o comando não duplica nenhuma ação (comentar, resolver…). `chamados login` e `chamados session-status` não refazem o login: só informam.
 
 #### Aparência da tabela (`--color`)
 

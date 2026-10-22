@@ -69,6 +69,7 @@ chamados watch --suporte    <span class="c"># acompanha a fila de suporte</span>
 <pre class="term">chamados profile list
 chamados profile init local --base-url http://localhost:8000 --username meu_usuario
 chamados --profile local login</pre>
+    <p>Quando a sessão expira, o comando <strong>refaz o login sozinho e roda de novo, uma vez</strong>, se a variável <code>SUAP_PASSWORD</code> estiver definida e o perfil tiver o usuário salvo (<code>chamados profile update --username &lt;usuário&gt;</code>). Sem uma das duas coisas, o erro diz o que falta. A senha fica só no ambiente.</p>
 
     <h2 id="sincronizar">Sincronizar entre aparelhos</h2>
     <p>A sincronização leva seus títulos e perfis para outros aparelhos, <strong>cifrados de ponta a ponta</strong> antes de saírem da máquina. Senhas, cookies de sessão e credenciais do bucket nunca são sincronizados.</p>
