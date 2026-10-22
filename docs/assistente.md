@@ -88,7 +88,33 @@ Além do chamado aberto, a pessoa pode importar **PDF, TXT e Markdown** (menu �
 
 - A Prompt API é **beta** ("sem SLA nem política de descontinuação") e pede **minSdk 26** (Android 8.0). O app passou a ser **minSdk 26** também (antes era 24, Android 7.x), então não há mais `tools:overrideLibrary` nem checagem de versão; a biblioteca NDK do Rust também é compilada para a API 26.
 - Precisa do app **AICore** e de **aparelho compatível** (a disponibilidade do Gemini Nano é limitada), sem bootloader desbloqueado; há **cota de inferência por aplicativo** (valores não publicados) e o limite de entrada é de **menos de 4000 tokens**.
-- **Não testado em aparelho real:** o emulador do projeto não tem AICore, então só o caminho "sem IA" (modelo pronto) foi exercitado de ponta a ponta. A geração com o Gemini Nano e os documentos com PDFs reais ainda dependem de aparelho compatível (#142).
+- **Teste em aparelho real:** feito num Moto G56 5G (Android 16) na v0.54.7; o resultado está na seção "Teste em aparelho real" abaixo. O emulador do projeto não tem AICore, e o aparelho de teste também não: a geração com o **Gemini Nano não será testada em aparelho real** (poucos usuários têm o Gemini Nano nativo; a #142 foi cancelada).
+
+## Teste em aparelho real (#142)
+
+**Aparelho:** Moto G56 5G, Android 16, arm64-v8a, 7,4 GB de RAM. **App:** v0.54.7 (oficial), com arquivos de teste e uma base real de 44 documentos Markdown (~340 KB) sobre procedimentos do IFRN.
+
+| Item | Resultado |
+|---|---|
+| Gemini Nano (AICore) | AICore **ausente**: a configuração mostra "indisponível neste aparelho" e o botão cai no **modelo pronto** com `[preencher]`, com a mensagem em português. A geração com o Gemini Nano não pôde ser testada. |
+| Modelo local (Qwen2.5 1.5B) | O download de 1,6 GB (~11 min no Wi‑Fi) e o SHA‑256 funcionaram, mas o app fechava ao terminar a geração (corrigido) e a resposta era sempre a mesma frase em inglês, sem relação com o chamado. **Removido** (#165, v0.54.9). |
+| TXT e Markdown pequenos | Pronto, 1 trecho cada |
+| PDF de 40 páginas (texto) | Pronto, 200 trechos, em menos de 3 s |
+| PDF de 480 páginas (2,4 MB) | Pronto, 3.360 trechos, em menos de 3 s |
+| PDF com mais de 500 páginas | "Grande demais (no máximo 50 MB e 500 páginas)" |
+| PDF só com imagem | "Sem texto para ler… o app não faz OCR" |
+| Arquivo inválido com extensão `.pdf` | "Arquivo inválido ou danificado" |
+| 44 Markdown reais de uma vez | todos Prontos em até 5 s (443 trechos) |
+| Remover documento | funciona (diálogo e confirmação) |
+
+**Qualidade da busca** (mesmo motor, rodado no PC sobre os mesmos 44 arquivos): em 8 consultas, 7 trouxeram o documento certo nos 3 primeiros trechos ("SSO Moodle autenticação SUAP" → `sso-moodle-auth-suap.md` em 1º; "restaurar disciplina modelo" → `disciplinas-modelos-restauracao.md`). A falha encontrada foi a **falta de corte de relevância**: "reiniciar a impressora" (nenhum documento trata disso) devolvia 3 trechos sem relação. Corrigida na #169 (ao menos duas palavras da pergunta no trecho e pontuação de pelo menos metade da do melhor).
+
+**Não foi testado**, e por quê:
+- **PDF protegido por senha:** não havia um arquivo para o teste (a fixture é a #172).
+- **Retomada depois de matar o app:** a indexação é rápida demais (480 páginas em menos de 3 s) para ser interrompida no meio; segue coberta pelos testes automatizados.
+- **Citação de arquivo e página no rascunho:** só aparece com a IA do sistema pronta (sem AICore, o modelo pronto não usa os documentos).
+- **PDFs digitalizados grandes ou com muitas fontes:** só PDFs sintéticos.
+- **Gemini Nano:** decisão de não testar (ver acima). Quem não tem IA nativa passa a ter a IA na nuvem com a chave da própria pessoa (#144).
 
 ## Limitações conhecidas
 
@@ -96,7 +122,7 @@ Além do chamado aberto, a pessoa pode importar **PDF, TXT e Markdown** (menu �
 - Contexto longo é truncado (as entradas mais antigas saem primeiro).
 - Sem a IA do sistema, "Mais curto/formal/refazer" não funcionam.
 - Sem lote e sem OCR (PDF digitalizado fica "sem texto"); os documentos são só de apoio ao texto, não um chat de perguntas e respostas.
-- A busca é por palavras (FTS5/BM25): não acha sinônimos. Busca semântica com embeddings é uma evolução possível (exige um modelo de embeddings baixado com consentimento).
+- A busca é por palavras (FTS5/BM25): não acha sinônimos; trechos que só compartilham duas palavras genéricas com a pergunta ainda podem passar no corte de relevância. Busca semântica com embeddings é uma evolução possível (exige um modelo de embeddings baixado com consentimento).
 
 ## Como rodar e testar
 
