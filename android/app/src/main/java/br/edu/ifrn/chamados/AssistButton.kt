@@ -9,7 +9,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,8 +65,6 @@ fun AssistButton(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    // O modelo local ocupa ~2 GB: sai da memória quando o diálogo some.
-    DisposableEffect(Unit) { onDispose { Assistant.release() } }
     var job by remember { mutableStateOf<Job?>(null) }
     var hasDraft by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -111,7 +108,7 @@ fun AssistButton(
                         AiState.Downloadable -> "A IA do aparelho ainda não foi baixada. Coloquei um modelo para você completar."
                         AiState.Downloading -> "A IA do aparelho está sendo baixada. Coloquei um modelo para você completar."
                         else -> if (Assistant.enabled(context)) {
-                            "Este aparelho não tem IA disponível (nem a do sistema nem o modelo local). Coloquei um modelo para você completar."
+                            "Este aparelho não tem IA disponível. Coloquei um modelo para você completar."
                         } else {
                             "O assistente de IA está desligado em Configurações. Coloquei um modelo para você completar."
                         }

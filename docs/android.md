@@ -247,7 +247,7 @@ O app passou de minSdk 24 para **26** (Android 8.0): a Prompt API do ML Kit GenA
 
 Os diálogos de texto (comentário, nota interna, resolver, suspender, cancelar, reabrir, fechar e avaliar, escalar/devolver e o título) têm o botão **Sugerir com IA**: a IA do aparelho (Gemini Nano via AICore) escreve um rascunho a partir do chamado aberto e do que a pessoa já digitou; o texto cai no campo, editável, e nada é enviado ao SUAP sem a confirmação do diálogo. Sem IA no aparelho, entra um modelo pronto com `[preencher]`. As regras (notas internas só em textos internos, orçamento de contexto, limpeza da resposta) ficam no crate `chamados-assist`, 100% testado; o Kotlin (`Assistant.kt`, `AssistButton.kt`) só fala com o modelo. Detalhes, privacidade, limitações e como testar em `docs/assistente.md`.
 
-O app pode, de forma **opcional e só com o consentimento da pessoa**, baixar um modelo local de reserva (Qwen2.5 1.5B, 1,6 GB, Apache-2.0) em Configurações › Assistente de IA; ele é conferido por SHA-256 e roda no aparelho com o LiteRT-LM (a biblioteca soma cerca de 45 MB ao APK de depuração, ~20 MB por ABI). Veja `docs/assistente.md`.
+O modelo local de reserva (Qwen2.5 1.5B via LiteRT-LM) foi **removido** na v0.54.9 (#165): quem o tinha baixado o perde na primeira abertura (o app apaga o arquivo e o cache do motor) e o APK ficou bem menor. Sem a IA do sistema, o botão coloca um modelo pronto com `[preencher]`. Veja `docs/assistente.md`.
 
 ## Documentos de apoio (M5 do assistente)
 
