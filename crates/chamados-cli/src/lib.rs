@@ -740,7 +740,8 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = match Cli::try_parse_from(args) {
+    let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    let cli = match Cli::try_parse_from(&args) {
         Ok(cli) => cli,
         Err(error) => {
             let code = error.exit_code();
@@ -761,7 +762,25 @@ where
         }
     };
 
-    match execute(cli, &paths, password, input, prompt, out) {
+    // The login itself and the session check report the state; any other command that finds the
+    // session expired gets one new login (when the password and the username are known).
+    let retryable = !matches!(
+        cli.command,
+        Some(Command::Login { .. } | Command::SessionStatus)
+    );
+    let mut tee = Tee {
+        inner: input,
+        seen: Vec::new(),
+    };
+    let mut result = execute(cli, &paths, password.clone(), &mut tee, prompt, out);
+    if retryable
+        && result
+            .as_ref()
+            .is_err_and(|error| error.is::<SessionExpired>())
+    {
+        result = relogin_and_retry(&args, &paths, password, tee, prompt, out, err);
+    }
+    match result {
         Ok(()) => 0,
         Err(error) => {
             let _ = writeln!(err, "erro: {error}");
@@ -2533,14 +2552,81 @@ fn app_error(error: AppError) -> Box<dyn Error> {
     }
 }
 
+const SESSION_EXPIRED: &str = "sessão ausente ou expirada: execute `chamados login`";
+
+/// The SUAP session is missing or expired: the request ended at the login page, so nothing was applied.
+#[derive(Debug)]
+struct SessionExpired;
+
+impl std::fmt::Display for SessionExpired {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(SESSION_EXPIRED)
+    }
+}
+
+impl Error for SessionExpired {}
+
 /// Turns ticket errors into user-facing messages.
 fn explain(error: TicketError) -> Box<dyn Error> {
     match error {
-        TicketError::Suap(SuapError::NotAuthenticated) => {
-            "sessão ausente ou expirada: execute `chamados login`".into()
-        }
+        TicketError::Suap(SuapError::NotAuthenticated) => Box::new(SessionExpired),
         other => other.into(),
     }
+}
+
+/// Standard input that remembers what was read from it, so a command run again after a new login
+/// finds the same text.
+struct Tee<'a> {
+    inner: &'a mut dyn Read,
+    seen: Vec<u8>,
+}
+
+impl Read for Tee<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        self.seen.extend_from_slice(&buf[..read]);
+        Ok(read)
+    }
+}
+
+/// What is missing for the login to be redone on its own.
+fn missing_for_relogin(have_password: bool, have_username: bool) -> String {
+    let mut missing = Vec::new();
+    if !have_password {
+        missing.push(format!("defina {PASSWORD_ENV}"));
+    }
+    if !have_username {
+        missing.push("use `chamados profile update --username <usuário>`".to_owned());
+    }
+    let what = missing.join(" e ");
+    format!("{SESSION_EXPIRED} (para o login ser refeito sozinho: {what})")
+}
+
+/// The session expired in the middle of a command: logs in again (with the password of
+/// [`PASSWORD_ENV`] and the profile's username) and runs the command once more. The request that found
+/// the expired session never reached SUAP, so running it again cannot repeat an action.
+fn relogin_and_retry(
+    args: &[OsString],
+    paths: &AppPaths,
+    password: Option<String>,
+    tee: Tee<'_>,
+    prompt: &mut dyn Prompt,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<(), Box<dyn Error>> {
+    let username = profile_config(paths)
+        .ok()
+        .and_then(|config| config.username);
+    let (have_password, have_username) = (password.is_some(), username.is_some());
+    let Some(secret) = password.filter(|_| have_username) else {
+        return Err(missing_for_relogin(have_password, have_username).into());
+    };
+    let _ = writeln!(err, "Sessão expirada: refazendo o login…");
+    login(paths, None, Some(secret.clone()), &mut std::io::sink())?;
+    let cli = Cli::try_parse_from(args)?;
+    let Tee { inner, seen } = tee;
+    let mut replay = std::io::Cursor::new(seen).chain(inner);
+    execute(cli, paths, Some(secret), &mut replay, prompt, out)
 }
 
 #[cfg(test)]
@@ -6804,6 +6890,146 @@ segredo-que-vai-no-qr
         let (code, _, err) = run_args(&["list"], &paths);
         assert_eq!(code, 1);
         assert!(err.contains("chamados login"));
+    }
+
+    /// The support list sends the first request to the login page (an expired session) and, from then
+    /// on, answers with `then`.
+    fn expire_once(runtime: &tokio::runtime::Runtime, server: &MockServer, then: ResponseTemplate) {
+        runtime.block_on(
+            Mock::given(method("GET"))
+                .and(path("/centralservicos/listar_chamados_suporte/"))
+                .respond_with(
+                    ResponseTemplate::new(302).insert_header("location", "/accounts/login/"),
+                )
+                .up_to_n_times(1)
+                .mount(server),
+        );
+        mount_listing(
+            runtime,
+            server,
+            "/centralservicos/listar_chamados_suporte/",
+            then,
+        );
+    }
+
+    const ONE_TICKET: &str = r#"<div class="general-box"><span class="status">Aberto</span>
+        <h4><a href="/centralservicos/chamado/7/">REQ #7 <strong>Assunto</strong></a></h4></div>"#;
+
+    #[test]
+    fn an_expired_session_is_renewed_once_and_the_command_runs_again() {
+        let (_dir, paths) = paths();
+        let (runtime, server) = mock_server(true);
+        let init = [
+            "profile",
+            "init",
+            "--base-url",
+            &server.uri(),
+            "--username",
+            "kelson",
+        ];
+        run_args(&init, &paths);
+        let page = ResponseTemplate::new(200).set_body_string(ONE_TICKET);
+        expire_once(&runtime, &server, page);
+        let (code, out, err) = run_login(&["list"], &paths, Some("segredo"));
+        assert_eq!(code, 0, "{err}");
+        assert_eq!(out, "#7\tAberto\t-\tAssunto\n");
+        assert!(err.contains("refazendo o login") && !err.contains("segredo"));
+        assert!(paths.session_file().exists());
+    }
+
+    #[test]
+    fn an_expired_session_says_what_is_missing_to_be_renewed() {
+        let (_dir, paths) = paths();
+        let (runtime, server) = mock_server(true);
+        run_args(&["profile", "init", "--base-url", &server.uri()], &paths);
+        let expired = ResponseTemplate::new(302).insert_header("location", "/accounts/login/");
+        mount_listing(
+            &runtime,
+            &server,
+            "/centralservicos/listar_chamados_suporte/",
+            expired,
+        );
+        // Neither the password nor the username.
+        let (code, _, err) = run_args(&["list"], &paths);
+        assert_eq!(code, 1);
+        assert!(err.contains("chamados login") && err.contains(PASSWORD_ENV));
+        assert!(err.contains("profile update --username"), "{err}");
+        // The password, but no username.
+        let (_, _, err) = run_login(&["list"], &paths, Some("segredo"));
+        assert!(!err.contains(&format!("defina {PASSWORD_ENV}")) && err.contains("--username"));
+        // The username, but no password.
+        run_args(&["profile", "update", "--username", "kelson"], &paths);
+        let (_, _, err) = run_args(&["list"], &paths);
+        assert!(err.contains(&format!("defina {PASSWORD_ENV}")) && !err.contains("--username"));
+    }
+
+    #[test]
+    fn a_failed_renewal_shows_the_login_error_and_does_not_run_again() {
+        // The login is refused: its error is shown and the command is not run again.
+        let (_dir, paths) = paths();
+        let (runtime, server) = mock_server(false);
+        let init = [
+            "profile",
+            "init",
+            "--base-url",
+            &server.uri(),
+            "--username",
+            "kelson",
+        ];
+        run_args(&init, &paths);
+        let expired = ResponseTemplate::new(302).insert_header("location", "/accounts/login/");
+        mount_listing(
+            &runtime,
+            &server,
+            "/centralservicos/listar_chamados_suporte/",
+            expired,
+        );
+        let (code, _, err) = run_login(&["list"], &paths, Some("errada"));
+        assert_eq!(code, 1);
+        assert!(err.contains("authentication failed"), "{err}");
+    }
+
+    #[test]
+    fn a_second_expiry_after_the_renewal_does_not_loop() {
+        // The login works but SUAP still sends the page to the login: one renewal only.
+        let (_dir, paths) = paths();
+        let (runtime, server) = mock_server(true);
+        let init = [
+            "profile",
+            "init",
+            "--base-url",
+            &server.uri(),
+            "--username",
+            "kelson",
+        ];
+        run_args(&init, &paths);
+        let expired = ResponseTemplate::new(302).insert_header("location", "/accounts/login/");
+        mount_listing(
+            &runtime,
+            &server,
+            "/centralservicos/listar_chamados_suporte/",
+            expired,
+        );
+        let (code, _, err) = run_login(&["list"], &paths, Some("segredo"));
+        assert_eq!(code, 1);
+        assert_eq!(err.matches("refazendo o login").count(), 1, "{err}");
+        assert!(err.contains("chamados login"));
+    }
+
+    #[test]
+    fn the_input_read_before_a_retry_is_given_again() {
+        let mut source = std::io::Cursor::new(b"texto longo".to_vec());
+        let mut tee = Tee {
+            inner: &mut source,
+            seen: Vec::new(),
+        };
+        let mut first = [0_u8; 5];
+        tee.read_exact(&mut first).unwrap();
+        let Tee { inner, seen } = tee;
+        let mut all = String::new();
+        let mut replay = std::io::Cursor::new(seen).chain(inner);
+        replay.read_to_string(&mut all).unwrap();
+        assert_eq!(all, "texto longo");
     }
 
     #[test]
