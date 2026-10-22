@@ -1,54 +1,76 @@
 package br.edu.ifrn.chamados
 
+import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
-/** A escolha entre a IA do sistema e o modelo local (provedores falsos, sem aparelho). */
+/** A escolha do provedor (provedores falsos, sem aparelho) e a limpeza do modelo local antigo. */
 class ChainProviderTest {
+    @get:Rule
+    val folder = TemporaryFolder()
+
     private class Fake(private val state: AiState, private val answer: String) : AnswerProvider {
         override suspend fun state(): AiState = state
         override fun download(): Flow<Long> = flowOf(answer.length.toLong())
         override fun generate(prompt: String): Flow<String> = flowOf(answer)
     }
 
-    private fun chain(system: AiState, local: AiState, enabled: Boolean = true) =
-        ChainProvider(Fake(system, "sistema"), Fake(local, "local")) { enabled }
+    private fun chain(vararg providers: Fake, enabled: Boolean = true) = ChainProvider(providers.toList()) { enabled }
 
     private fun ChainProvider.answer(): List<String> = runBlocking { state(); generate("p").toList() }
 
     @Test
-    fun `a IA do sistema pronta vence o modelo local`() {
-        val provider = chain(AiState.Ready, AiState.Ready)
+    fun `com um provedor so, ele pronto responde`() {
+        val provider = chain(Fake(AiState.Ready, "sistema"))
         assertEquals(AiState.Ready, runBlocking { provider.state() })
         assertEquals(listOf("sistema"), provider.answer())
     }
 
     @Test
-    fun `sem a IA do sistema entra o modelo local instalado`() {
-        for (system in listOf(AiState.Unsupported, AiState.Downloadable, AiState.Downloading)) {
-            val provider = chain(system, AiState.Ready)
-            assertEquals(AiState.Ready, runBlocking { provider.state() })
-            assertEquals(listOf("local"), provider.answer())
-        }
+    fun `sem nenhum pronto fica o estado do primeiro`() {
+        assertEquals(AiState.Downloadable, runBlocking { chain(Fake(AiState.Downloadable, "a")).state() })
+        assertEquals(AiState.Unsupported, runBlocking { chain(Fake(AiState.Unsupported, "a"), Fake(AiState.Downloading, "b")).state() })
     }
 
     @Test
-    fun `sem nenhum dos dois fica o estado da IA do sistema`() {
-        assertEquals(AiState.Downloadable, runBlocking { chain(AiState.Downloadable, AiState.Unsupported).state() })
-        assertEquals(AiState.Unsupported, runBlocking { chain(AiState.Unsupported, AiState.Unsupported).state() })
+    fun `o primeiro pronto vence e, se o primeiro nao esta, entra o seguinte pronto`() {
+        assertEquals(listOf("a"), chain(Fake(AiState.Ready, "a"), Fake(AiState.Ready, "b")).answer())
+        assertEquals(listOf("b"), chain(Fake(AiState.Unsupported, "a"), Fake(AiState.Ready, "b")).answer())
     }
 
     @Test
     fun `desligado nas configuracoes nada e usado`() {
-        assertEquals(AiState.Unsupported, runBlocking { chain(AiState.Ready, AiState.Ready, enabled = false).state() })
+        assertEquals(AiState.Unsupported, runBlocking { chain(Fake(AiState.Ready, "a"), enabled = false).state() })
     }
 
     @Test
-    fun `o download e sempre o da IA do sistema`() {
-        assertEquals(listOf(7L), runBlocking { chain(AiState.Downloadable, AiState.Ready).download().toList() })
+    fun `o download e sempre o do primeiro provedor`() {
+        assertEquals(listOf(1L), runBlocking { chain(Fake(AiState.Downloadable, "a"), Fake(AiState.Ready, "bb")).download().toList() })
+    }
+
+    @Test
+    fun `a limpeza do modelo local apaga o arquivo e o cache do motor e deixa o resto`() {
+        val models = folder.newFolder("models")
+        File(models, "Qwen.litertlm").writeText("x")
+        File(models, "Qwen.litertlm.download").writeText("y")
+        val cache = folder.newFolder("cache")
+        File(cache, "Qwen.litertlm_1_2.xnnpack_cache").writeText("c")
+        File(cache, "outro.tmp").writeText("fica")
+
+        deleteLocalModelFiles(models, cache)
+
+        assertFalse(models.exists())
+        assertFalse(File(cache, "Qwen.litertlm_1_2.xnnpack_cache").exists())
+        assertTrue(File(cache, "outro.tmp").exists())
+        // Sem pasta de modelos (armazenamento indisponível) nada quebra.
+        deleteLocalModelFiles(null, cache)
     }
 }

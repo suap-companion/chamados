@@ -20,12 +20,12 @@ Guia para agentes (e pessoas) que trabalham neste repositório: o monorepo `suap
 ## Regras do projeto
 
 - **Privacidade**: nada de conteúdo de chamado, rascunho, senha, cookie ou chave de sincronização em logs, issues ou PRs. Notas internas nunca entram no contexto de textos públicos da IA (regra testada em `chamados-assist`).
-- **Dependências novas** só com justificativa (custo no APK, manutenção, compatibilidade). O APK é pesado (LiteRT-LM, ML Kit, SQLite); meça o tamanho.
+- **Dependências novas** só com justificativa (custo no APK, manutenção, compatibilidade). O APK é pesado (ML Kit, SQLite); meça o tamanho.
 - **Git**: branch `issues/<número>`; commits em pt-BR no padrão `tipo(escopo): [TAG] Descrição`, com **Motivo**, **Impacto** e **Arquivos** no corpo; autoria de Kelson da Costa Medeiros, sem trailer `Co-Authored-By`. Não commitar nem enviar sem o pedido da pessoa.
 - **Release**: aumente a versão em `Cargo.toml` (`[workspace.package]`), faça o PR, espere o CI, mescle, crie a tag e a release (`gh release create vX.Y.Z`: o workflow Release só dispara em `release: published`), espere o workflow **terminar com sucesso (5 assets, inclusive o APK)** e só então feche a issue. Registre as horas (`Estimated (h)`/`Spent (h)`) nas issues.
 - Scripts Python com acentos: grave o `.py` num arquivo (não por heredoc/stdin; o Python do Windows lê stdin em cp1252) e rode com `python -I`.
 
 ## Limitações conhecidas
 
-- A IA do sistema (Gemini Nano) e o modelo local (Qwen2.5, 1,6 GB) só foram exercitados até onde o emulador permite; veja a issue de teste em aparelho real e `docs/assistente.md`.
+- A IA do sistema (Gemini Nano) só foi exercitada até onde o emulador permite (o modelo local foi removido, #165); veja a issue de teste em aparelho real (#142) e `docs/assistente.md`.
 - A busca dos documentos é por palavras (FTS5/BM25), sem sinônimos.

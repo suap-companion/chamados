@@ -56,7 +56,7 @@ dependencies {
 
     // O UniFFI do Kotlin chama a biblioteca Rust por JNA.
     implementation("net.java.dev.jna:jna:5.17.0@aar")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     // Ler o QR do pareamento da sincronização: câmera (CameraX) + leitor de códigos (ML Kit, com o
     // modelo embutido: funciona sem rede e sem os serviços do Google).
@@ -68,8 +68,6 @@ dependencies {
     // IA do sistema (Gemini Nano via AICore): "Sugerir com IA" nos textos dos chamados. Beta; a biblioteca pede
     // minSdk 26, o mesmo do app.
     implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
-    // Modelo local de reserva (opcional, baixado só com consentimento): LiteRT-LM (o MediaPipe LLM Inference está em manutenção).
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
 
     // Acompanhamento em segundo plano: agendamento periódico que sobrevive a reinício e respeita o Doze.
     implementation("androidx.work:work-runtime-ktx:2.10.0")

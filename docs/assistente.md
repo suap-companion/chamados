@@ -2,7 +2,7 @@
 
 O app ajuda a **escrever** os textos que a pessoa envia ao SUAP: **título**, **comentário**, **nota interna**, **suspensão**, **cancelamento**, **resolução**, **fechamento**, **reabertura** e a nota de **escalar/devolver**. A IA roda **no aparelho**; o contexto é **só o chamado aberto**; a pessoa **revisa e edita** o rascunho, e **nada é enviado ao SUAP sem a confirmação do diálogo**.
 
-> Estado: marcos M0 a M6 do plano (spike, núcleo, fachada, interface, modelo local de reserva, base de documentos opcional, testes unitários e de instrumentação, lint e o passo no CI). A nuvem continua só planejada.
+> Estado: marcos M0 a M6 do plano (spike, núcleo, fachada, interface, base de documentos opcional, testes unitários e de instrumentação, lint e o passo no CI). O modelo local de reserva foi **removido** (#165). A nuvem continua só planejada (#144).
 
 ## Como se usa
 
@@ -42,29 +42,20 @@ Diálogos Compose ──▶ AssistButton (Kotlin)
 | Estado | O que acontece |
 |---|---|
 | IA do sistema pronta (`AVAILABLE`) | gera com o Gemini Nano via AICore |
-| IA do sistema não pronta, **modelo local instalado** | gera com o modelo local (LiteRT-LM) |
-| Modelo do sistema ainda não baixado (`DOWNLOADABLE`), sem modelo local | usa o modelo pronto e oferece **Baixar a IA do aparelho** (progresso em MB) |
-| Baixando (`DOWNLOADING`), sem AICore ou aparelho sem suporte, sem modelo local | usa o modelo pronto |
+| Modelo do sistema ainda não baixado (`DOWNLOADABLE`) | usa o modelo pronto e oferece **Baixar a IA do aparelho** (progresso em MB) |
+| Baixando (`DOWNLOADING`), sem AICore ou aparelho sem suporte | usa o modelo pronto |
 | Assistente **desligado** em Configurações | usa o modelo pronto |
 | Falha da IA | mensagem em português (ex.: AICore sem resposta, preparo em andamento) |
 
-A escolha é feita a cada pedido (`ChainProvider` em `Assistant.kt`): primeiro a IA do sistema, depois o modelo local.
+A escolha é feita a cada pedido (`ChainProvider` em `Assistant.kt`): o primeiro provedor da lista que estiver pronto. Hoje só há a IA do sistema; a lista deixa espaço para outro provedor (a IA na nuvem com a chave da pessoa, #144).
 
-## Modelo local de reserva (opcional)
+## Modelo local (removido)
 
-Em **Configurações › Assistente de IA** há o liga/desliga do assistente, o estado da IA do sistema e o modelo local, que **só é baixado com o consentimento da pessoa**.
+Até a v0.54.8 o app podia baixar, com consentimento, um modelo local de reserva (Qwen2.5 1.5B, 1,6 GB, LiteRT-LM). Ele foi **removido na v0.54.9 (#165)**: poucos aparelhos o rodam bem, nos testes em aparelho real ele nunca respondeu direito (a #146, que investigava isso, foi cancelada) e a biblioteca (LiteRT-LM) pesava dezenas de MB por ABI no APK (o APK de depuração caiu de ~109 MB para ~61 MB).
 
-- **Modelo:** Qwen2.5 1.5B Instruct em `.litertlm` (quantizado em 8 bits), do repositório `litert-community/Qwen2.5-1.5B-Instruct` no Hugging Face: **1,6 GB**, licença **Apache-2.0**, **sem login nem aceite de termos**. O Gemma, que era a ideia inicial, é *gated* (exige conta e aceite no Hugging Face), então não dá para baixá-lo de dentro do app. Constantes e SHA-256 em `LocalModel.kt`.
-- **Consentimento:** antes de qualquer byte, um diálogo mostra o tamanho, a licença, a origem, o espaço livre (exige 20% de folga) e um aviso se o aparelho tem menos de 3 GB de memória; "Baixar só no Wi-Fi" vem marcado.
-- **Download:** feito pelo `DownloadManager` do sistema (retoma sozinho, segue redirecionamentos, mostra a notificação e continua com o app fechado), na pasta externa do app (`Android/data/<app>/files/models`). A tela mostra o progresso e permite cancelar.
-- **Verificação:** ao terminar, o app confere o **SHA-256** (e o tamanho); se não confere, o arquivo é apagado e a pessoa é avisada. Só o arquivo conferido é usado.
-- **Uso:** o motor (`LocalLlm`) carrega o modelo na primeira sugestão (uns 10 segundos, ~2 GB de memória), fica carregado enquanto o diálogo de texto está aberto e é liberado quando ele fecha. Roda só na CPU.
-- **Apagar:** "Apagar o modelo" remove o arquivo e libera os 1,6 GB; desinstalar o app também.
-- **Não está no repositório** nem no backup (pasta externa do app).
-
-> **Custo no APK:** a biblioteca LiteRT-LM (`litertlm-android` 0.16.1) traz ~20 MB para `arm64-v8a` e ~25 MB para `x86_64` (o emulador); o APK de depuração passou de ~51 MB para ~103 MB. Em aparelhos de 32 bits (`armeabi-v7a`) a biblioteca não existe e o modelo local não funciona (o app cai no modelo pronto). Versões mais novas da biblioteca (0.18) exigem Kotlin 2.4; com o Kotlin 2.2 do projeto, a última compatível é a 0.16.1.
-
-- **Nuvem** é *planejada, não implementada*: ficaria **desativada por padrão**, com consentimento explícito, sem enviar tokens do SUAP, credenciais nem documentos. O MediaPipe LLM Inference está em manutenção, por isso o modelo local usa o LiteRT-LM.
+- **Quem já baixou o modelo** o perde na primeira abertura da versão nova: o app cancela o download pendente e apaga o arquivo (`Android/data/<app>/files/models`) e o cache do motor, liberando os 1,6 GB (`Assistant.removeLeftoverLocalModel`).
+- **Ficam**: a IA do sistema (Gemini Nano, onde existir), o modelo pronto com `[preencher]` e os documentos de apoio.
+- **Nuvem** é *planejada, não implementada* (#144): ficaria **desativada por padrão**, com consentimento explícito, usando a chave de API da própria pessoa, sem enviar tokens do SUAP, credenciais nem documentos.
 
 ## Documentos de apoio (opcional)
 
@@ -88,13 +79,13 @@ Além do chamado aberto, a pessoa pode importar **PDF, TXT e Markdown** (menu �
 
 - A Prompt API é **beta** ("sem SLA nem política de descontinuação") e pede **minSdk 26** (Android 8.0). O app passou a ser **minSdk 26** também (antes era 24, Android 7.x), então não há mais `tools:overrideLibrary` nem checagem de versão; a biblioteca NDK do Rust também é compilada para a API 26.
 - Precisa do app **AICore** e de **aparelho compatível** (a disponibilidade do Gemini Nano é limitada), sem bootloader desbloqueado; há **cota de inferência por aplicativo** (valores não publicados) e o limite de entrada é de **menos de 4000 tokens**.
-- **Não testado em aparelho real:** o emulador do projeto não tem AICore, então só o caminho "sem IA" (modelo pronto) foi exercitado de ponta a ponta. A geração com o Gemini Nano, o **download do modelo local** (1,6 GB pelo `DownloadManager`), a verificação do SHA-256 em arquivo real e a **geração com o modelo local** foram escritos conforme as APIs publicadas (conferidas nos AARs) mas **não foram executados**: o diálogo de consentimento, o estado e a seção de Configurações foram vistos no emulador; o resto precisa de um aparelho real (com AICore para o Gemini Nano; com 3 GB ou mais de memória e arm64 para o modelo local), inclusive para avaliar a qualidade do texto em português. O Qwen2.5 1.5B é um modelo pequeno: espere mais erros que no Gemini Nano.
+- **Não testado em aparelho real:** o emulador do projeto não tem AICore, então só o caminho "sem IA" (modelo pronto) foi exercitado de ponta a ponta. A geração com o Gemini Nano e os documentos com PDFs reais ainda dependem de aparelho compatível (#142).
 
 ## Limitações conhecidas
 
 - A IA pode errar ou inventar: por isso o prompt restringe aos fatos, há aviso na tela e a pessoa revisa antes de enviar.
 - Contexto longo é truncado (as entradas mais antigas saem primeiro).
-- Sem IA (nem do sistema nem o modelo local), "Mais curto/formal/refazer" não funcionam.
+- Sem a IA do sistema, "Mais curto/formal/refazer" não funcionam.
 - Sem lote e sem OCR (PDF digitalizado fica "sem texto"); os documentos são só de apoio ao texto, não um chat de perguntas e respostas.
 - A busca é por palavras (FTS5/BM25): não acha sinônimos. Busca semântica com embeddings é uma evolução possível (exige um modelo de embeddings baixado com consentimento).
 

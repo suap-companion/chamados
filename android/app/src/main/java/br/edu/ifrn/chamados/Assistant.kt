@@ -1,5 +1,6 @@
 package br.edu.ifrn.chamados
 
+import android.app.DownloadManager
 import android.content.Context
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
@@ -10,6 +11,7 @@ import com.google.mlkit.genai.prompt.GenerativeModel
 import com.google.mlkit.genai.prompt.TextPart
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import java.io.File
 
 /** O estado da IA do aparelho (Gemini Nano via AICore). */
 sealed interface AiState {
@@ -40,39 +42,46 @@ interface AnswerProvider {
 }
 
 /**
- * Escolhe o provedor na hora: a IA do sistema, se estiver pronta; senão o modelo local, se estiver instalado;
- * senão fica o estado da IA do sistema (para o app oferecer o download ou o modelo pronto). Desligado nas
- * configurações, nenhum dos dois é usado.
+ * Escolhe o provedor na hora: o primeiro da lista que estiver pronto; se nenhum estiver, fica o estado do
+ * primeiro (para o app oferecer o download ou o modelo pronto). Desligado nas configurações, nenhum é usado.
+ * Hoje só há a IA do sistema; a lista deixa espaço para outro provedor, como a IA na nuvem com a chave da pessoa.
  */
 class ChainProvider(
-    private val primary: AnswerProvider,
-    private val secondary: AnswerProvider,
+    private val providers: List<AnswerProvider>,
     private val enabled: () -> Boolean,
 ) : AnswerProvider {
-    private var active: AnswerProvider = primary
+    private var active: AnswerProvider = providers.first()
 
     override suspend fun state(): AiState {
+        val first = providers.first()
+        active = first
         if (!enabled()) return AiState.Unsupported
-        val first = primary.state()
-        if (first == AiState.Ready) {
-            active = primary
-            return first
+        val firstState = first.state()
+        if (firstState == AiState.Ready) return firstState
+        for (other in providers.drop(1)) {
+            if (other.state() == AiState.Ready) {
+                active = other
+                return AiState.Ready
+            }
         }
-        if (secondary.state() == AiState.Ready) {
-            active = secondary
-            return AiState.Ready
-        }
-        active = primary
-        return first
+        return firstState
     }
 
-    override fun download(): Flow<Long> = primary.download()
+    override fun download(): Flow<Long> = providers.first().download()
 
     override fun generate(prompt: String): Flow<String> = active.generate(prompt)
 }
 
+/** Apaga do aparelho o que o modelo local (removido do app) deixou: o arquivo baixado e o cache do motor. */
+internal fun deleteLocalModelFiles(models: File?, cache: File) {
+    models?.deleteRecursively()
+    cache.listFiles { file -> file.name.endsWith(".xnnpack_cache") }?.forEach { it.delete() }
+}
+
 object Assistant {
     private const val KEY = "assistant_enabled"
+    private const val DOWNLOAD_KEY = "local_model_download_id"
+    private const val CLEANED_KEY = "local_model_removed"
 
     private fun prefs(context: Context) = context.getSharedPreferences("chamados", Context.MODE_PRIVATE)
 
@@ -83,17 +92,27 @@ object Assistant {
         prefs(context).edit().putBoolean(KEY, value).apply()
     }
 
-    /** O provedor a usar: IA do sistema (o app é Android 8+, como a biblioteca) e, de reserva, o modelo local. */
-    fun provider(context: Context): AnswerProvider {
-        LocalLlm.attach(context)
-        return ChainProvider(AicoreProvider, LocalLlm) { enabled(context) }
+    /** O provedor a usar: a IA do sistema (o app é Android 8+, como a biblioteca). */
+    fun provider(context: Context): AnswerProvider = ChainProvider(listOf(AicoreProvider)) { enabled(context) }
+
+    /**
+     * Quem baixou o modelo local numa versão anterior (1,6 GB) o perde aqui, uma vez: cancela o download
+     * pendente, apaga o arquivo e o cache do motor, e esquece a marca.
+     */
+    fun removeLeftoverLocalModel(context: Context) {
+        val prefs = prefs(context)
+        if (prefs.getBoolean(CLEANED_KEY, false)) return
+        val pending = prefs.getLong(DOWNLOAD_KEY, -1L)
+        if (pending != -1L) {
+            runCatching { (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).remove(pending) }
+        }
+        deleteLocalModelFiles(context.getExternalFilesDir(null)?.let { File(it, "models") }, context.cacheDir)
+        prefs.edit().remove(DOWNLOAD_KEY).putBoolean(CLEANED_KEY, true).apply()
     }
 
     /** O estado só da IA do sistema (para as configurações). */
     suspend fun systemState(): AiState = AicoreProvider.state()
 
-    /** Libera a memória do modelo local. */
-    fun release() = LocalLlm.release()
 }
 
 /** A Prompt API do ML Kit GenAI (Gemini Nano pelo AICore); o pedido leva menos de 4000 tokens. */
