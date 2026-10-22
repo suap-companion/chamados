@@ -15,6 +15,43 @@ use suap_rag as rag;
 
 use crate::{failed, sync::unix_now, ChamadosError};
 
+/// Quantos trechos se pedem ao índice para escolher entre eles: o corte descarta os fracos, e ainda
+/// sobram os `limit` melhores.
+const CANDIDATES: usize = 12;
+/// Um trecho só vale se tem ao menos esta parte da pontuação do melhor que passou no corte de palavras.
+const MIN_RELATIVE_SCORE: f64 = 0.5;
+
+/// Quantas das palavras da pergunta aparecem (como início de palavra) no trecho.
+fn matched_terms(terms: &[String], text: &str) -> usize {
+    let folded = rag::search::fold(text);
+    let words: Vec<&str> = folded
+        .split(|letter: char| !letter.is_alphanumeric())
+        .collect();
+    let starts = |term: &String| words.iter().any(|word| word.starts_with(term.as_str()));
+    terms.iter().filter(|term| starts(term)).count()
+}
+
+/// O corte de relevância: o índice sempre devolve os "melhores" trechos, mesmo quando nenhum serve.
+/// Ficam só os que têm ao menos duas palavras da pergunta (uma só, se a pergunta tem uma) e, entre
+/// eles, os de pontuação de pelo menos metade da do melhor. Pergunta sem documento que a responda
+/// não gera referência.
+fn relevant(hits: Vec<rag::Hit>, query: &str, limit: usize) -> Vec<rag::Hit> {
+    let terms = rag::search::terms(query);
+    if terms.is_empty() {
+        return Vec::new();
+    }
+    let needed = terms.len().min(2).max(terms.len().div_ceil(2));
+    let covered: Vec<rag::Hit> = hits
+        .into_iter()
+        .filter(|hit| matched_terms(&terms, &hit.text) >= needed)
+        .collect();
+    let best = covered.iter().map(|hit| hit.score).fold(0.0, f64::max);
+    let strong = covered
+        .into_iter()
+        .filter(|hit| hit.score >= best * MIN_RELATIVE_SCORE);
+    strong.take(limit).collect()
+}
+
 /// Em que pé está um documento.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum DocState {
@@ -251,9 +288,10 @@ impl Docs {
     pub fn search(&self, query: String, limit: u32) -> Result<Vec<DocHit>, ChamadosError> {
         let hits = self
             .index()?
-            .search(&query, limit as usize)
+            .search(&query, CANDIDATES.max(limit as usize))
             .map_err(failed)?;
-        Ok(hits.into_iter().map(DocHit::from).collect())
+        let kept = relevant(hits, &query, limit as usize);
+        Ok(kept.into_iter().map(DocHit::from).collect())
     }
 }
 
@@ -265,6 +303,93 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let docs = Docs::open(dir.path().join("docs").display().to_string()).unwrap();
         (dir, docs)
+    }
+
+    fn hit(text: &str, score: f64) -> rag::Hit {
+        rag::Hit {
+            doc_id: 1,
+            doc_name: "a.md".to_owned(),
+            page: None,
+            text: text.to_owned(),
+            score,
+        }
+    }
+
+    #[test]
+    fn a_hit_needs_two_words_of_the_question_when_it_has_two_or_more() {
+        // A question with one word only needs that word.
+        let one = relevant(vec![hit("Reiniciar o servidor.", 5.0)], "reiniciar", 3);
+        assert_eq!(one.len(), 1);
+        // Two words: a chunk with only one of them is not an answer (the index would still return it).
+        let both = hit("Para reiniciar a impressora, desligue.", 4.0);
+        let one_word = hit("A impressora de rede fica no setor.", 6.0);
+        let kept = relevant(vec![one_word, both], "reiniciar a impressora", 3);
+        assert_eq!(kept.len(), 1);
+        assert!(kept[0].text.contains("reiniciar"));
+        // Accents and case do not matter, and a word counts as the start of a word in the chunk.
+        let accented = hit("Autenticação no SUAP: o plugin autentica o usuário.", 7.0);
+        assert_eq!(relevant(vec![accented], "AUTENTICAÇÃO SUAP", 3).len(), 1);
+        // Longer questions ask for half of their words, and at least two.
+        let three_words = "moodle senha suap";
+        let two_of_three = hit("A senha do moodle expira.", 5.0);
+        assert_eq!(relevant(vec![two_of_three], three_words, 3).len(), 1);
+        let one_of_three = hit("A senha expira.", 5.0);
+        assert!(relevant(vec![one_of_three], three_words, 3).is_empty());
+        // Nothing to look for (only common words): nothing is kept.
+        assert!(relevant(vec![hit("qualquer coisa", 5.0)], "o que é isso", 3).is_empty());
+    }
+
+    #[test]
+    fn weak_hits_next_to_a_strong_one_and_hits_over_the_limit_are_dropped() {
+        let text = "backup do servidor e rede";
+        let hits = vec![
+            hit(text, 10.0),
+            hit(text, 5.0),
+            hit(text, 4.9),
+            hit(text, 9.0),
+        ];
+        let kept: Vec<f64> = relevant(hits.clone(), "backup servidor", 10)
+            .into_iter()
+            .map(|h| h.score)
+            .collect();
+        // Half of the best (10.0) is 5.0: 4.9 is out; the order the index gave is kept.
+        assert_eq!(kept, [10.0, 5.0, 9.0]);
+        assert_eq!(relevant(hits, "backup servidor", 2).len(), 2);
+    }
+
+    #[test]
+    fn a_question_nobody_answers_gets_no_references_but_a_good_one_does() {
+        let (dir, docs) = docs();
+        let notes = [
+            (
+                "sso.md",
+                "# SSO do Moodle\n\nO plugin auth_suap faz a autenticação do Moodle com o SUAP.",
+            ),
+            (
+                "wifi.md",
+                "# Wifi\n\nPara o wifi use a rede eduroam com certificado.",
+            ),
+            (
+                "dhcp.md",
+                "# DHCP\n\nReserve o IP fixo pelo DHCP para a impressora do setor.",
+            ),
+        ];
+        for (name, text) in notes {
+            let id = docs
+                .import_file(name.to_owned(), source(&dir, name, text.as_bytes()))
+                .unwrap();
+            docs.index_document(id, IndexControl::new()).unwrap();
+        }
+        // Several documents mention "impressora" or "reiniciar" alone, but none answers this.
+        assert!(docs
+            .search("reiniciar a impressora".to_owned(), 3)
+            .unwrap()
+            .is_empty());
+        let hits = docs
+            .search("autenticação Moodle SUAP".to_owned(), 3)
+            .unwrap();
+        assert_eq!(hits[0].source, "sso.md");
+        assert!(hits.iter().all(|hit| hit.source == "sso.md"));
     }
 
     fn source(dir: &tempfile::TempDir, name: &str, bytes: &[u8]) -> String {
