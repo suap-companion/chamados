@@ -122,6 +122,15 @@ class DocumentsFlowTest {
         waitFor { mine().any { it.name == fake && it.state == DocState.CORRUPTED } }
         assertEquals("Arquivo inválido ou danificado.", mine().first { it.name == fake }.statusText())
 
+        // Um PDF de verdade, protegido por senha (`androidTest/assets/protegido.pdf`, gerado por
+        // `scripts/gerar-pdf-protegido.py`): fica "protegido" e o texto dele nunca entra na busca.
+        val locked = prefix + "protegido.pdf"
+        val bytes = InstrumentationRegistry.getInstrumentation().context.assets.open("protegido.pdf").use { it.readBytes() }
+        InstrumentationRegistry.getInstrumentation().runOnMainSync { model.import(listOf(file(locked, bytes))) }
+        waitFor { mine().any { it.name == locked && it.state == DocState.PROTECTED } }
+        assertTrue(mine().first { it.name == locked }.statusText().contains("senha"))
+        assertTrue(Documents.open(app).search("Documento protegido por senha", 3u).none { it.source == locked })
+
         val sheet = prefix + "planilha.xlsx"
         InstrumentationRegistry.getInstrumentation().runOnMainSync { model.import(listOf(file(sheet, ByteArray(10)))) }
         waitFor { model.message != null }

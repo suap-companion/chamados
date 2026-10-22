@@ -392,6 +392,32 @@ mod tests {
         assert!(hits.iter().all(|hit| hit.source == "sso.md"));
     }
 
+    #[test]
+    fn a_real_password_protected_pdf_is_protected_and_never_searched() {
+        // `testdata/protegido.pdf` é um PDF de verdade, criptografado (RC4 de 40 bits) com a senha "senha";
+        // `scripts/gerar-pdf-protegido.py` o recria, e o poppler (`pdftotext -upw senha`) o lê com a senha.
+        let (dir, docs) = docs();
+        let bytes = include_bytes!("../testdata/protegido.pdf");
+        let id = docs
+            .import_file(
+                "protegido.pdf".to_owned(),
+                source(&dir, "protegido.pdf", bytes),
+            )
+            .unwrap();
+        let result = docs.index_document(id, IndexControl::new()).unwrap();
+        assert_eq!(
+            (result.state, result.cancelled),
+            (DocState::Protected, false)
+        );
+        assert_eq!(docs.list().unwrap()[0].state, DocState::Protected);
+        assert_eq!(docs.list().unwrap()[0].chunks, 0);
+        // O texto da página (que existe, mas está cifrado) nunca entra na busca.
+        let found = docs
+            .search("Documento protegido senha".to_owned(), 3)
+            .unwrap();
+        assert!(found.is_empty());
+    }
+
     fn source(dir: &tempfile::TempDir, name: &str, bytes: &[u8]) -> String {
         let path = dir.path().join(name);
         fs::write(&path, bytes).unwrap();
