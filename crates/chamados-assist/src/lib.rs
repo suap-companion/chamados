@@ -43,6 +43,10 @@ pub enum DraftKind {
     Reopen,
     Escalate,
     Return,
+    /// A justificativa de uma reclassificação (serviço, campus ou centro).
+    Reclassify,
+    /// A descrição de um chamado a abrir (ainda sem chamado como contexto).
+    Describe,
 }
 
 impl DraftKind {
@@ -63,6 +67,8 @@ impl DraftKind {
             Self::Reopen => "Escreva o motivo da reabertura: o que ainda não está resolvido.",
             Self::Escalate => "Escreva a nota interna ao escalar o chamado para o nível superior: por que escalar e o que já foi tentado.",
             Self::Return => "Escreva a nota interna ao devolver o chamado ao nível anterior: por que devolver e o que falta.",
+            Self::Reclassify => "Escreva a justificativa da reclassificação do chamado: por que o serviço, o campus ou o centro de atendimento precisa mudar.",
+            Self::Describe => "Escreva a descrição de um chamado novo: o que está acontecendo ou o que se pede, com os detalhes que a pessoa informou.",
         }
     }
 
@@ -82,6 +88,8 @@ impl DraftKind {
             Self::Reopen => format!("Reabrindo o chamado porque {hint}."),
             Self::Escalate => format!("Escalando para o nível superior: {hint}."),
             Self::Return => format!("Devolvendo ao nível anterior: {hint}."),
+            Self::Reclassify => format!("Reclassificando o chamado porque {hint}."),
+            Self::Describe => hint.to_owned(),
         }
     }
 }
@@ -233,8 +241,10 @@ de forma clara e objetiva.\n",
 datas, nomes nem números; onde faltar uma informação necessária, escreva {PLACEHOLDER}; devolva apenas o \
 texto final, sem aspas, sem markdown e sem explicações.\n\n"
     ));
-    head.push_str(&format!("Chamado #{}\n", ticket.id));
-    head.push_str(&format!("Tipo: {}\n", one_line(&ticket.kind)));
+    if !ticket.id.is_empty() {
+        head.push_str(&format!("Chamado #{}\n", ticket.id));
+        head.push_str(&format!("Tipo: {}\n", one_line(&ticket.kind)));
+    }
     if !ticket.statuses.is_empty() {
         head.push_str(&format!("Situação: {}\n", ticket.statuses.join(", ")));
     }
@@ -448,7 +458,7 @@ mod tests {
         }
     }
 
-    const ALL: [DraftKind; 10] = [
+    const ALL: [DraftKind; 12] = [
         DraftKind::Title,
         DraftKind::Comment,
         DraftKind::InternalNote,
@@ -459,6 +469,8 @@ mod tests {
         DraftKind::Reopen,
         DraftKind::Escalate,
         DraftKind::Return,
+        DraftKind::Reclassify,
+        DraftKind::Describe,
     ];
 
     #[test]
@@ -466,7 +478,7 @@ mod tests {
         let internal: Vec<bool> = ALL.iter().map(|kind| kind.is_internal()).collect();
         assert_eq!(
             internal,
-            [false, false, true, false, false, false, false, false, true, true]
+            [false, false, true, false, false, false, false, false, true, true, false, false]
         );
     }
 
@@ -518,6 +530,16 @@ mod tests {
                 && !text.contains("Situação:")
                 && !text.contains("Descrição:")
         );
+    }
+
+    #[test]
+    fn a_text_without_a_ticket_has_no_ticket_header() {
+        let mut ask = request(DraftKind::Describe, vec![]);
+        ask.ticket.id = String::new();
+        ask.hint = Some("o wifi caiu".to_owned());
+        let text = build_prompt(&ask, DEFAULT_BUDGET_CHARS).text;
+        assert!(!text.contains("Chamado #") && !text.contains("Tipo:"));
+        assert!(text.contains("O que a pessoa quer dizer: o wifi caiu"));
     }
 
     #[test]

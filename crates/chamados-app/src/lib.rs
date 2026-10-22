@@ -7,6 +7,7 @@
 use chamados_core::TicketError;
 use thiserror::Error;
 
+pub mod ai;
 pub mod apply;
 pub mod batch;
 pub mod download;

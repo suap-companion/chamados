@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+chamados-assist = { path = "../chamados-assist" }
 chamados-core = { path = "../chamados-core" }
 chamados-sync = { path = "../chamados-sync" }
 suap-core.workspace = true
@@ -13,6 +14,8 @@ thiserror = "2"
 # Desenha o QR do pareamento no terminal (sem recursos de imagem): evita escrever um codificador de QR.
 qrcode = { version = "0.14", default-features = false }
 url = "2"
+# Fala com a API do provedor de IA (`--AI`); mesma versão e TLS do suap-core, sem recursos extras.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 [dev-dependencies]
 tempfile = "3"
