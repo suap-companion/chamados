@@ -79,6 +79,7 @@ fn request(action: ShareAction, ticket: Option<&str>, text: Option<&str>) -> Sha
         text: text.map(str::to_owned),
         title: None,
         files: Vec::new(),
+        attachment_description: None,
         resume_from: 0,
     }
 }
@@ -277,4 +278,35 @@ async fn opening_a_ticket_reports_what_suap_refuses() {
     let error = report.steps[0].error.as_deref().unwrap();
     assert!(error.contains("no ticket form"), "{error}");
     assert_eq!(report.ticket, None);
+}
+
+/// The body of the last form posted to the fake SUAP.
+async fn last_post_body(server: &MockServer) -> String {
+    let requests = server.received_requests().await.unwrap();
+    let post = requests
+        .iter()
+        .rfind(|request| request.method.as_str() == "POST")
+        .unwrap();
+    String::from_utf8_lossy(&post.body).into_owned()
+}
+
+#[tokio::test]
+async fn the_attachment_description_goes_to_suap_and_defaults_to_the_file_name() {
+    let server = MockServer::start().await;
+    form(&server, "/centralservicos/adicionar_anexo/", 5, "x").await;
+    let (_directory, client) = client_for(&server).await;
+    let source = SuapTicketSource::new(&client, TicketQueue::Support);
+
+    let mut with = request(ShareAction::Attach, Some("5"), None);
+    with.files = vec![file("foto.jpg", 10)];
+    with.attachment_description = Some("Tela do erro".to_owned());
+    assert!(apply_share(&source, &with).await.unwrap().is_done());
+    assert!(last_post_body(&server).await.contains("Tela do erro"));
+
+    let mut without = request(ShareAction::Attach, Some("5"), None);
+    without.files = vec![file("log-do-servidor.pdf", 10)];
+    assert!(apply_share(&source, &without).await.unwrap().is_done());
+    assert!(last_post_body(&server)
+        .await
+        .contains("log-do-servidor.pdf"));
 }

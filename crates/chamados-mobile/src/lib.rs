@@ -327,6 +327,8 @@ pub struct ShareJob {
     pub title: Option<String>,
     /// Caminhos dos arquivos já copiados para a pasta do aplicativo.
     pub file_paths: Vec<String>,
+    /// A descrição dos anexos (até 80 caracteres); sem ela, o SUAP mostra o nome do arquivo.
+    pub attachment_description: Option<String>,
     /// `completed` de uma tentativa anterior, para refazer só o que falhou.
     pub resume_from: u32,
 }
@@ -620,6 +622,7 @@ impl Chamados {
             text: job.text,
             title: job.title,
             files,
+            attachment_description: job.attachment_description,
             resume_from: job.resume_from as usize,
         };
         let source = SuapTicketSource::new(&self.client, TicketQueue::Support);
@@ -851,6 +854,7 @@ mod tests {
                 text: Some("texto".to_owned()),
                 title: None,
                 file_paths: Vec::new(),
+                attachment_description: None,
                 resume_from: 0,
             }
         }

@@ -40,6 +40,8 @@ pub struct ShareRequest {
     /// Título do PDF gerado a partir do texto (só em `Attach`).
     pub title: Option<String>,
     pub files: Vec<Attachment>,
+    /// A descrição dos anexos (até 80 caracteres; sem ela, o nome do arquivo), como `attach --descricao`.
+    pub attachment_description: Option<String>,
     /// Quantos passos do começo já foram feitos numa tentativa anterior (`completed` do relatório).
     pub resume_from: usize,
 }
@@ -72,7 +74,7 @@ impl ShareReport {
 
 enum Step {
     Open(Box<NewTicket>),
-    Attach(Attachment),
+    Attach(Attachment, Option<String>),
     Send(Message, String),
     Suspend(String),
     Cancel(String),
@@ -84,7 +86,7 @@ impl Step {
     fn label(&self) -> String {
         match self {
             Self::Open(_) => "Abrir o chamado".to_owned(),
-            Self::Attach(file) => format!("Anexar {}", file.file_name),
+            Self::Attach(file, _) => format!("Anexar {}", file.file_name),
             Self::Send(Message::Comment, _) => "Adicionar o comentário".to_owned(),
             Self::Send(Message::InternalNote, _) => "Adicionar a nota interna".to_owned(),
             Self::Suspend(_) => "Suspender o chamado".to_owned(),
@@ -155,7 +157,11 @@ fn plan(request: &ShareRequest) -> Result<Vec<Step>, AppError> {
         }
     }
     validate_attachments(&files)?;
-    let mut steps: Vec<Step> = files.into_iter().map(Step::Attach).collect();
+    let description = request.attachment_description.clone();
+    let mut steps: Vec<Step> = files
+        .into_iter()
+        .map(|file| Step::Attach(file, description.clone()))
+        .collect();
 
     if request.action != ShareAction::Attach {
         let text = text.ok_or_else(|| refuse("falta o texto: a mensagem ou o motivo"))?;
@@ -179,7 +185,11 @@ async fn run(
 ) -> Result<Option<String>, AppError> {
     match step {
         Step::Open(new) => return Ok(Some(source.open_ticket(new).await?)),
-        Step::Attach(file) => source.attach_file(ticket, file, None).await?,
+        Step::Attach(file, description) => {
+            source
+                .attach_file(ticket, file, description.as_deref())
+                .await?
+        }
         Step::Send(kind, text) => source.add_message(ticket, *kind, text).await?,
         Step::Suspend(text) => source.suspend_ticket(ticket, text).await?,
         Step::Cancel(text) => source.cancel_ticket(ticket, text).await?,

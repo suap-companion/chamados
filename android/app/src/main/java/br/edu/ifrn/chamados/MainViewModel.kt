@@ -146,6 +146,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var actionMessage by mutableStateOf<String?>(null)
     var actionIsError by mutableStateOf(false)
         private set
+    /** A descrição dos anexos (até 80 caracteres); vazia, o SUAP mostra o nome do arquivo. */
+    var attachmentDescription by mutableStateOf("")
+
     var picked by mutableStateOf<List<ReceivedFile>>(emptyList())
         private set
     var pickNote by mutableStateOf<String?>(null)
@@ -445,7 +448,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 val kind = if (action == BatchAction.Comment) ShareKind.COMMENT else ShareKind.INTERNAL_NOTE
                                 val job = ShareJob(
                                     kind = kind, serviceId = null, campus = null, center = null, interested = null,
-                                    ticket = id, text = text, title = null, filePaths = emptyList(), resumeFrom = 0u,
+                                    ticket = id, text = text, title = null, filePaths = emptyList(), attachmentDescription = null, resumeFrom = 0u,
                                 )
                                 val outcome = core.applyShare(job)
                                 if (!outcome.done) failures += id to describe(outcome.steps)
@@ -650,8 +653,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Junta a foto tirada ao que já foi escolhido e separa o que o SUAP aceita (a foto é reduzida se passar do limite). */
+    fun addPhoto(photo: File) {
+        viewModelScope.launch {
+            val (accepted, refused) = withContext(Dispatchers.IO) {
+                val fitted = PhotoFile.fit(photo)
+                FileCopy.classify(picked + ReceivedFile(fitted.name, fitted.absolutePath, fitted.length()))
+            }
+            picked = accepted
+            pickNote = refused.takeIf { it.isNotEmpty() }?.joinToString("\n") { "${it.name}: ${it.reason}" }
+        }
+    }
+
     fun clearPicked() {
         picked = emptyList()
+        attachmentDescription = ""
+        File(getApplication<Application>().cacheDir, "fotos").deleteRecursively()
         pickNote = null
         pickFolder.deleteRecursively()
     }
@@ -685,7 +702,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val job = ShareJob(
                             kind = action.kind!!, serviceId = null, campus = null, center = null, interested = null,
                             ticket = id, text = clean, title = null,
-                            filePaths = picked.map { it.path }, resumeFrom = 0u,
+                            filePaths = picked.map { it.path }, attachmentDescription = attachmentDescription.trim().ifEmpty { null }, resumeFrom = 0u,
                         )
                         val outcome = core.applyShare(job)
                         if (!outcome.done) failure = describe(outcome.steps)
@@ -767,7 +784,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     kind = ShareKind.CREATE, serviceId = service.toULong(), campus = null, center = null,
                     interested = interested.trim().ifEmpty { null },
                     ticket = null, text = text.trim(), title = null,
-                    filePaths = picked.map { it.path }, resumeFrom = 0u,
+                    filePaths = picked.map { it.path }, attachmentDescription = null, resumeFrom = 0u,
                 )
                 val outcome = open().applyShare(job)
                 val created = outcome.ticket

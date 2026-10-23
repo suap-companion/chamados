@@ -4,4 +4,6 @@
     <cache-path name="anexos" path="anexos/" />
     <!-- O ZIP do chamado exportado, de passagem, para entregá-lo por "Compartilhar". -->
     <cache-path name="exportar" path="exportar/" />
+    <!-- A foto tirada pela câmera para anexar, de passagem, até ser enviada. -->
+    <cache-path name="fotos" path="fotos/" />
 </paths>

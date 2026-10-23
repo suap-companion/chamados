@@ -39,6 +39,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import java.io.File
+import java.time.LocalDateTime
 import androidx.compose.ui.unit.dp
 import uniffi.chamados_mobile.TicketView
 
@@ -207,6 +211,24 @@ private fun ActionDialog(
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) model.onPicked(uris, null)
     }
+    // A foto: a câmera só é pedida nesta hora; sem câmera ou sem permissão, o aviso oferece "Escolher arquivos".
+    val context = LocalContext.current
+    var photoFile by remember { mutableStateOf<File?>(null) }
+    var cameraProblem by remember { mutableStateOf<String?>(null) }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+        val file = photoFile
+        if (taken && file != null) model.addPhoto(file) else file?.delete()
+    }
+    fun takePhoto() {
+        val directory = File(context.cacheDir, "fotos").apply { mkdirs() }
+        val file = File(directory, PhotoFile.fileName(LocalDateTime.now()))
+        photoFile = file
+        camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", file))
+    }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        cameraProblem = cameraNote(hasCamera = true, permissionDenied = !granted)
+        if (granted) takePhoto()
+    }
     val needsFiles = action == DetailAction.Attach
     val ready = when {
         action.needsText && text.isBlank() -> false
@@ -243,7 +265,27 @@ private fun ActionDialog(
                     OutlinedButton(onClick = { picker.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
                         Text(if (needsFiles) "Escolher arquivos" else "Anexar arquivos (opcional)")
                     }
+                    OutlinedButton(
+                        onClick = {
+                            val hasCamera = context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)
+                            val granted = ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) ==
+                                android.content.pm.PackageManager.PERMISSION_GRANTED
+                            cameraProblem = cameraNote(hasCamera, permissionDenied = false)
+                            if (hasCamera) if (granted) takePhoto() else cameraPermission.launch(android.Manifest.permission.CAMERA)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Foto") }
+                    cameraProblem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium) }
                     model.picked.forEach { Text("• ${it.name}") }
+                    if (model.picked.isNotEmpty()) {
+                        OutlinedTextField(
+                            value = model.attachmentDescription,
+                            onValueChange = { model.attachmentDescription = it.take(80) },
+                            label = { Text("Descrição do anexo (opcional, até 80 caracteres)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     model.pickNote?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium) }
                 }
                 if (!action.needsText && !action.takesFiles && action != DetailAction.Close) Text("Confirma esta ação no chamado #${model.detail?.id ?: ""}?")
