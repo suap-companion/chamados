@@ -704,6 +704,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * "Assumir e iniciar": assume e, em seguida, inicia o atendimento. Se o segundo passo falha, o chamado já
+     * ficou assumido e a mensagem diz isso.
+     */
+    fun runAssumeAndStart(id: String) {
+        viewModelScope.launch {
+            actionBusy = true
+            actionMessage = null
+            try {
+                val core = open()
+                core.assume(id)
+                val startFailure = try {
+                    core.startService(id)
+                    null
+                } catch (error: Throwable) {
+                    error.readable()
+                }
+                actionIsError = startFailure != null
+                actionMessage = assumeAndStartMessage(startFailure)
+                reloadDetail(id)
+            } catch (error: Throwable) {
+                actionIsError = true
+                actionMessage = error.readable()
+            } finally {
+                actionBusy = false
+            }
+        }
+    }
+
     /** Executa uma ação de gestão (atribuir, escalar, reclassificar, tags, interessados). */
     fun runManage(id: String, action: ManageAction, values: List<String>) {
         viewModelScope.launch {
