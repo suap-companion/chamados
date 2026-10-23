@@ -394,7 +394,11 @@ fun DetailScreen(model: MainViewModel, id: String) {
         exported?.let { shareZip(context, it.path) }
         model.exported = null
     }
-    Scaffold(topBar = { GovBrHeader("Chamado #$id", onBack = model::back) }) { padding ->
+    Scaffold(
+        topBar = { GovBrHeader("Chamado #$id", onBack = model::back) },
+        // O rodapé fixo com a ação principal da situação (carregado o chamado).
+        bottomBar = { model.detail?.takeIf { !model.detailLoading }?.let { DetailFooterBar(model, it) } },
+    ) { padding ->
         Column(Modifier.padding(padding)) {
             when {
                 model.detailLoading -> Centered { CircularProgressIndicator() }

@@ -196,7 +196,7 @@ private fun MoreMenu(model: MainViewModel, id: String) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ActionDialog(
+internal fun ActionDialog(
     model: MainViewModel,
     action: DetailAction,
     onDismiss: () -> Unit,
