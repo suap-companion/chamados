@@ -260,7 +260,7 @@ internal fun ActionDialog(
 }
 
 @Composable
-private fun ManageDialog(
+internal fun ManageDialog(
     action: ManageAction,
     view: TicketView?,
     localTitle: String?,
