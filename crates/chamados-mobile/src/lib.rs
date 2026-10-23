@@ -164,6 +164,8 @@ pub struct ListQuery {
     pub page: Option<u32>,
     /// A quem o chamado está atribuído, só na fila de suporte (`mim`, `outros`, `ninguem`…).
     pub assignment: Option<String>,
+    /// Só os chamados com o SLA estourado (só a fila de suporte).
+    pub sla_exceeded: bool,
 }
 
 /// Quantos chamados marcados se buscam um a um, no máximo, a cada vez que a lista é lida.
@@ -194,6 +196,7 @@ impl ListQuery {
             until: self.until,
             page: self.page,
             assignment: self.assignment,
+            sla_exceeded: self.sla_exceeded,
             ..TicketFilter::default()
         }
     }

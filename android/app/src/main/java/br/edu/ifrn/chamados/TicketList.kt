@@ -69,11 +69,12 @@ fun TicketItem(
     photo: String? = null,
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
+    overdue: Boolean = false,
     onClick: () -> Unit,
 ) {
     val note = snooze?.let { if (it.due) "voltou do adiamento" else "volta ${formatMoment(it.until)}" }
     val description = listOfNotNull(
-        "chamado ${ticket.id}", ticket.status, note, title, ticket.subject ?: "sem assunto",
+        "chamado ${ticket.id}", ticket.status, note, if (overdue) "SLA estourado" else null, title, ticket.subject ?: "sem assunto",
     ).joinToString(", ")
     val background = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
     Row(
@@ -96,6 +97,7 @@ fun TicketItem(
                 Text("#${ticket.id}", style = MaterialTheme.typography.labelLarge)
                 ticket.status?.takeIf { it.isNotBlank() }?.let { StatusBadge(it) }
             }
+            if (overdue) Text("SLA estourado", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
             if (snooze != null && note != null) {
                 val mark = if (snooze.due) "↩ " else "⏰ "
                 Text(mark + note, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)

@@ -18,8 +18,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -77,6 +75,7 @@ fun ChamadosApp(model: MainViewModel) {
     when (val screen = model.screen) {
         Screen.Start -> Splash()
         Screen.Login -> LoginScreen(model)
+        Screen.Today -> TodayScreen(model)
         Screen.Tickets -> TicketsScreen(model)
         is Screen.Detail -> DetailScreen(model, screen.id)
         Screen.Settings -> SettingsScreen(model)
@@ -160,58 +159,17 @@ private fun Splash() {
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun TicketsScreen(model: MainViewModel) {
-    val tabs = listOf(Queue.MINE to "Meus", Queue.SUPPORT to "Suporte", Queue.TO_CLOSE to "A fechar")
     val modes = listOf(ListMode.Normal to "Ativos", ListMode.Snoozed to "Adiados", ListMode.Archived to "Arquivados")
     val searchable = model.queue == Queue.SUPPORT || model.mode != ListMode.Normal
     var newProfile by remember { mutableStateOf(false) }
     Scaffold(
-        topBar = {
-            GovBrHeader(
-                title = "Chamados",
-                subtitle = model.activeProfile.name,
-                quick = listOf(
-                    HeaderItem("Configurações") { model.openSettings() },
-                    HeaderItem("Documentos de apoio") { model.openDocuments() },
-                    HeaderItem("Sincronização entre dispositivos") { model.openSync() },
-                ),
-                search = if (searchable) {
-                    HeaderSearch(
-                        label = if (model.mode != ListMode.Normal) "Buscar no título local" else "Buscar no texto dos chamados",
-                        value = model.searchText,
-                        onChange = { model.searchText = it },
-                        onSubmit = { model.refresh() },
-                        onClose = {
-                            model.searchText = ""
-                            model.refresh()
-                        },
-                    )
-                } else {
-                    null
-                },
-                account = HeaderAccount(
-                    name = model.user?.name,
-                    enrollment = model.user?.enrollment,
-                    profile = model.activeProfile.name,
-                    photo = model.user?.photo,
-                    items = model.profiles.filter { it.name != model.activeProfile.name }
-                        .map { other -> HeaderItem("Trocar para ${other.name}") { model.switchProfile(other.name) } } +
-                        listOf(
-                            HeaderItem("Cadastrar novo perfil…") { newProfile = true },
-                            HeaderItem("Sair (esquecer a sessão)") { model.logout() },
-                        ),
-                ),
-            )
-        },
+        topBar = { TicketsHeader(model, searchable) { newProfile = true } },
+        bottomBar = { HomeNavigation(model.tab, model::chooseTab) },
         floatingActionButton = {
             FloatingActionButton(onClick = model::openNewTicket) { Icon(Icons.Filled.Add, contentDescription = "Novo chamado") }
         },
     ) { padding ->
         Column(Modifier.padding(padding)) {
-            TabRow(selectedTabIndex = tabs.indexOfFirst { it.first == model.queue }.coerceAtLeast(0)) {
-                tabs.forEach { (queue, label) ->
-                    Tab(selected = model.queue == queue, onClick = { model.chooseQueue(queue) }, text = { Text(label, maxLines = 1) })
-                }
-            }
             FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 modes.forEach { (mode, label) ->
                     val amount = model.counts?.let {
@@ -237,6 +195,11 @@ fun TicketsScreen(model: MainViewModel) {
                         selected = model.assignedToMe,
                         onClick = model::toggleAssignedToMe,
                         label = { Text("Atribuídos a mim") },
+                    )
+                    FilterChip(
+                        selected = model.slaOnly,
+                        onClick = model::toggleSlaOnly,
+                        label = { Text("SLA estourado") },
                     )
                 }
             }
@@ -288,6 +251,46 @@ fun TicketsScreen(model: MainViewModel) {
         )
     }
     if (newProfile) NewProfileDialog(model) { newProfile = false }
+}
+
+/** O cabeçalho das telas de chamados (Hoje e listas): menu rápido, busca (nas listas) e a conta. */
+@Composable
+fun TicketsHeader(model: MainViewModel, searchable: Boolean, onNewProfile: () -> Unit) {
+    GovBrHeader(
+        title = "Chamados",
+        subtitle = model.activeProfile.name,
+        quick = listOf(
+            HeaderItem("Configurações") { model.openSettings() },
+            HeaderItem("Documentos de apoio") { model.openDocuments() },
+            HeaderItem("Sincronização entre dispositivos") { model.openSync() },
+        ),
+        search = if (searchable) {
+            HeaderSearch(
+                label = if (model.mode != ListMode.Normal) "Buscar no título local" else "Buscar no texto dos chamados",
+                value = model.searchText,
+                onChange = { model.searchText = it },
+                onSubmit = { model.refresh() },
+                onClose = {
+                    model.searchText = ""
+                    model.refresh()
+                },
+            )
+        } else {
+            null
+        },
+        account = HeaderAccount(
+            name = model.user?.name,
+            enrollment = model.user?.enrollment,
+            profile = model.activeProfile.name,
+            photo = model.user?.photo,
+            items = model.profiles.filter { it.name != model.activeProfile.name }
+                .map { other -> HeaderItem("Trocar para ${other.name}") { model.switchProfile(other.name) } } +
+                listOf(
+                    HeaderItem("Cadastrar novo perfil…") { onNewProfile() },
+                    HeaderItem("Sair (esquecer a sessão)") { model.logout() },
+                ),
+        ),
+    )
 }
 
 /** A barra de ações em lote: quantos estão escolhidos, "selecionar tudo" e as ações para todos eles. */
@@ -357,7 +360,7 @@ private fun BatchBar(model: MainViewModel) {
 
 /** Cadastra um perfil (ambiente): o nome e o endereço do SUAP; passa a usá-lo e pede o login dele. */
 @Composable
-private fun NewProfileDialog(model: MainViewModel, onClose: () -> Unit) {
+internal fun NewProfileDialog(model: MainViewModel, onClose: () -> Unit) {
     var name by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("https://") }
     AlertDialog(
@@ -394,7 +397,11 @@ fun DetailScreen(model: MainViewModel, id: String) {
         exported?.let { shareZip(context, it.path) }
         model.exported = null
     }
-    Scaffold(topBar = { GovBrHeader("Chamado #$id", onBack = model::back) }) { padding ->
+    Scaffold(
+        topBar = { GovBrHeader("Chamado #$id", onBack = model::back) },
+        // O rodapé fixo com a ação principal da situação (carregado o chamado).
+        bottomBar = { model.detail?.takeIf { !model.detailLoading }?.let { DetailFooterBar(model, it) } },
+    ) { padding ->
         Column(Modifier.padding(padding)) {
             when {
                 model.detailLoading -> Centered { CircularProgressIndicator() }
