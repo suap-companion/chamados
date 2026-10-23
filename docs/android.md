@@ -256,3 +256,10 @@ O menu ⋮ do app tem **Documentos de apoio**: a pessoa importa PDF, TXT e Markd
 ## Testes de instrumentação
 
 `./gradlew connectedDebugAndroidTest` (emulador ou aparelho) roda `android/app/src/androidTest`: o botão "Sugerir com IA" e o fluxo de documentos com a biblioteca nativa de verdade. O CI não os roda (precisaria de um emulador).
+
+## Tela Hoje e barra inferior (#179)
+
+A primeira tela depois do login é **Hoje** (`Today.kt`), com a barra inferior **Hoje, Meus, Suporte, A fechar** (a antiga fileira de abas virou essa barra). Topo: a data por extenso e três contadores tocáveis: **Em atendimento** (meus ativos com a situação "Em atendimento", abre Meus), **SLA estourado** (abre Suporte com "Atribuídos a mim" + "SLA estourado") e **Voltou do adiamento** (abre Meus > Adiados). Seções, cada uma com a contagem: **Voltou hoje** (adiados cujo prazo chegou), **Em aberto** (meus ativos, SLA estourado primeiro, com aviso em vermelho) e **Resolvidos**. Cada chamado aparece numa seção só. Os números saem das listas que o app já lê (`Chamados.list`): meus ativos, adiados, a fila de suporte atribuída a mim com o novo filtro `ListQuery.slaExceeded` (só nessa fila; também é um chip "SLA estourado" na aba Suporte) e meus resolvidos.
+
+Limites: a lista não traz serviço, interessado nem a hora da resolução, então o cartão mostra o que já mostrava (número, situação, título local ou assunto) e **Resolvidos** lista os resolvidos que o SUAP devolve para a pessoa, sem a hora. O SLA estourado conta só a primeira página da fila de suporte. A tela só é testada no emulador; o botão voltar do detalhe, de "Novo chamado" e dos Documentos leva de volta ao lugar de onde se saiu (Hoje ou lista).
+
