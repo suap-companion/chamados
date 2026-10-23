@@ -79,6 +79,7 @@
     ["Escrever com a ajuda da IA", "usar-app.html#ia", "ia inteligência artificial sugerir texto rascunho comentário resolução gemini nano mais curto formal"],
     ["A IA não aparece", "faq.html#ia", "ia sugerir aicore gemini nano modelo pronto preencher baixar"],
     ["Documentos de apoio", "usar-app.html#documentos", "documentos apoio pdf txt markdown importar indexar procedimento modelo citar fonte página"],
+    ["IA na nuvem com a minha chave", "faq.html#nuvem", "ia nuvem chave api gemini claude anthropic openai ollama openrouter provedor google ai studio sugerir"],
     ["Documento não indexado", "faq.html#documentos", "documento indexar sem texto ocr protegido senha pdf digitalizado grande"],
     ["Sincronizar com o computador", "usar-app.html#sincronizar", "sincronizar sync qr pareamento cifrada r2 s3"],
     ["Sincronizar no CLI e onde ficam os dados", "usar-cli.html#sincronizar", "sync sincronizar config.toml sync.key chave titles.json chaveiro bucket r2 s3 diretório onde ficam arquivos"],

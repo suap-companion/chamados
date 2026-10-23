@@ -108,7 +108,7 @@ fun AssistButton(
                         AiState.Downloadable -> "A IA do aparelho ainda não foi baixada. Coloquei um modelo para você completar."
                         AiState.Downloading -> "A IA do aparelho está sendo baixada. Coloquei um modelo para você completar."
                         else -> if (Assistant.enabled(context)) {
-                            "Este aparelho não tem IA disponível. Coloquei um modelo para você completar."
+                            "Este aparelho não tem IA disponível. Coloquei um modelo para você completar. Dá para ligar a IA na nuvem em Configurações."
                         } else {
                             "O assistente de IA está desligado em Configurações. Coloquei um modelo para você completar."
                         }

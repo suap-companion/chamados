@@ -92,8 +92,14 @@ object Assistant {
         prefs(context).edit().putBoolean(KEY, value).apply()
     }
 
-    /** O provedor a usar: a IA do sistema (o app é Android 8+, como a biblioteca). */
-    fun provider(context: Context): AnswerProvider = ChainProvider(listOf(AicoreProvider)) { enabled(context) }
+    /**
+     * O provedor a usar: primeiro a IA do sistema (o app é Android 8+, como a biblioteca) e, se ela não estiver
+     * pronta, a IA na nuvem com a chave da própria pessoa (desligada até ela ligar; #144).
+     */
+    fun provider(context: Context): AnswerProvider {
+        val cloud = CloudAnswerProvider({ CloudAi.config(context) })
+        return ChainProvider(listOf(AicoreProvider, cloud)) { enabled(context) }
+    }
 
     /**
      * Quem baixou o modelo local numa versão anterior (1,6 GB) o perde aqui, uma vez: cancela o download
@@ -161,5 +167,7 @@ fun Throwable.assistMessage(): String = when {
     this is GenAiException && errorCode == 606 ->
         "A IA do aparelho ainda está sendo preparada. Isso pode levar de minutos a horas; tente mais tarde."
     this is GenAiException -> "A IA do aparelho falhou (código $errorCode). Tente de novo."
+    // A IA na nuvem: o Rust já diz o que houve em português (sem a chave nem o texto do chamado).
+    this is uniffi.chamados_mobile.ChamadosException.Failed -> detail
     else -> "Não foi possível gerar o texto agora. Tente de novo."
 }

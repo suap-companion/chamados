@@ -2,7 +2,7 @@
 
 O app ajuda a **escrever** os textos que a pessoa envia ao SUAP: **título**, **comentário**, **nota interna**, **suspensão**, **cancelamento**, **resolução**, **fechamento**, **reabertura** e a nota de **escalar/devolver**. A IA roda **no aparelho**; o contexto é **só o chamado aberto**; a pessoa **revisa e edita** o rascunho, e **nada é enviado ao SUAP sem a confirmação do diálogo**.
 
-> Estado: marcos M0 a M6 do plano (spike, núcleo, fachada, interface, base de documentos opcional, testes unitários e de instrumentação, lint e o passo no CI). O modelo local de reserva foi **removido** (#165). A nuvem continua só planejada (#144).
+> Estado: marcos M0 a M6 do plano (spike, núcleo, fachada, interface, base de documentos opcional, testes unitários e de instrumentação, lint e o passo no CI). O modelo local de reserva foi **removido** (#165). A **IA na nuvem com a chave da própria pessoa** está disponível (#144).
 
 ## Como se usa
 
@@ -44,10 +44,11 @@ Diálogos Compose ──▶ AssistButton (Kotlin)
 | IA do sistema pronta (`AVAILABLE`) | gera com o Gemini Nano via AICore |
 | Modelo do sistema ainda não baixado (`DOWNLOADABLE`) | usa o modelo pronto e oferece **Baixar a IA do aparelho** (progresso em MB) |
 | Baixando (`DOWNLOADING`), sem AICore ou aparelho sem suporte | usa o modelo pronto |
+| IA do sistema não pronta e **IA na nuvem ligada, com chave guardada** | gera com o provedor escolhido (Gemini, Claude ou compatível com a OpenAI) |
 | Assistente **desligado** em Configurações | usa o modelo pronto |
 | Falha da IA | mensagem em português (ex.: AICore sem resposta, preparo em andamento) |
 
-A escolha é feita a cada pedido (`ChainProvider` em `Assistant.kt`): o primeiro provedor da lista que estiver pronto. Hoje só há a IA do sistema; a lista deixa espaço para outro provedor (a IA na nuvem com a chave da pessoa, #144).
+A escolha é feita a cada pedido (`ChainProvider` em `Assistant.kt`): o primeiro provedor da lista que estiver pronto, na ordem **IA do sistema, depois IA na nuvem**. A nuvem só entra se a pessoa a ligou e há chave guardada.
 
 ## Modelo local (removido)
 
@@ -55,7 +56,7 @@ Até a v0.54.8 o app podia baixar, com consentimento, um modelo local de reserva
 
 - **Quem já baixou o modelo** o perde na primeira abertura da versão nova: o app cancela o download pendente e apaga o arquivo (`Android/data/<app>/files/models`) e o cache do motor, liberando os 1,6 GB (`Assistant.removeLeftoverLocalModel`).
 - **Ficam**: a IA do sistema (Gemini Nano, onde existir), o modelo pronto com `[preencher]` e os documentos de apoio.
-- **Nuvem** é *planejada, não implementada* (#144): ficaria **desativada por padrão**, com consentimento explícito, usando a chave de API da própria pessoa, sem enviar tokens do SUAP, credenciais nem documentos.
+- **Nuvem**: implementada na #144 (seção abaixo), desativada por padrão.
 
 ## IA no CLI (`--AI`)
 
@@ -65,6 +66,17 @@ O CLI reutiliza as regras do `chamados-assist` (privacidade interno × público,
 - **Tipos de texto**: além dos do app, `Reclassify` (justificativa) e `Describe` (descrição de um chamado a abrir, sem chamado como contexto).
 - **Comandos**: `--AI [instrução]` em `title`, `comment`, `note`, `suspend`, `resolve`, `close`, `cancel`, `reopen`, `escalate`, `return`, `reclassify` e `open`; a instrução pode ser literal, `-` (entrada padrão) ou `@arquivo`. O texto gerado é mostrado e enviado em seguida. Veja o README.
 - **Privacidade**: o chamado sai da máquina só nos comandos com `--AI`; notas internas só entram em textos internos; erros nunca levam texto de chamado.
+
+## IA na nuvem com a chave da pessoa (#144)
+
+Para aparelhos sem IA do sistema, o app usa a **conta do próprio usuário** em um provedor. Nada vem ligado: a pessoa escolhe o provedor, informa a chave de API **dela**, **lê para onde o texto vai** e liga.
+
+- **Provedores** (`cloud_providers()` na fachada): **Gemini** (Google, `gemini-3.8-flash`), **Claude** (Anthropic, `claude-haiku-5-5`) e **OpenAI e compatíveis** (`gpt-4o-mini`; aceita outro endereço, como Ollama ou OpenRouter). O modelo pode ser trocado; vazio vale o padrão. Assinaturas de consumo (Claude.ai, Gemini app, Copilot) não dão chave de API: a chave vem do console de desenvolvedor de cada provedor (por exemplo, o Google AI Studio do Gemini).
+- **Configurações › Assistente de IA › IA na nuvem**: provedor, modelo, endereço (só no compatível com a OpenAI), chave, **Guardar**, **Testar conexão** e **Apagar a chave**. O interruptor vem **desligado**; ao ligar, um aviso diz o servidor que receberá o texto e o que vai: o título, a descrição e as mensagens do chamado aberto (as **notas internas só nos textos internos**, como nota interna e escalar), os trechos dos documentos de apoio que ajudarem e o uso entra na cota e na cobrança da conta da pessoa. As credenciais e a sessão do SUAP nunca saem do aparelho, e nada é enviado ao SUAP sem a confirmação do diálogo.
+- **A chave**: guardada **cifrada (AES‑GCM) com uma chave do Android Keystore**, na pasta que o backup do Android não leva (`noBackupFilesDir/cofre`); nunca vai a log, a erro, ao SUAP nem à sincronização. Uma chave que não abre (outro aparelho, Keystore limpo) lê como "sem chave".
+- **Como funciona**: `CloudAnswerProvider` (Kotlin) entra no `ChainProvider` depois da IA do sistema; o Rust (`cloud_generate`, que reaproveita o `chamados_app::ai` do CLI) faz o pedido HTTPS. O endereço da API precisa ser **https** (http só vale para a própria máquina, como um Ollama local), a chave nunca aparece nas mensagens de erro, e a resposta passa pela mesma limpeza (`assist_clean`) das demais. As regras de privacidade e de orçamento do pedido são as de sempre (`chamados-assist`).
+- **Documentos de apoio**: com a nuvem pronta, os trechos relevantes entram no pedido (e, portanto, saem do aparelho junto com ele); o aviso diz isso.
+- **Testes**: unitários (provedor, chave mascarada, cadeia), Rust (HTTP simulado: cabeçalho, erro sem vazar a chave, endereço inseguro, chave vazia) e instrumentação (cofre do Keystore de verdade e o aviso ao ligar).
 
 ## Documentos de apoio (opcional)
 
@@ -114,7 +126,7 @@ Além do chamado aberto, a pessoa pode importar **PDF, TXT e Markdown** (menu �
 - **Retomada depois de matar o app:** a indexação é rápida demais (480 páginas em menos de 3 s) para ser interrompida no meio; segue coberta pelos testes automatizados.
 - **Citação de arquivo e página no rascunho:** só aparece com a IA do sistema pronta (sem AICore, o modelo pronto não usa os documentos).
 - **PDFs digitalizados grandes ou com muitas fontes:** só PDFs sintéticos.
-- **Gemini Nano:** decisão de não testar (ver acima). Quem não tem IA nativa passa a ter a IA na nuvem com a chave da própria pessoa (#144).
+- **Gemini Nano:** decisão de não testar (ver acima). Quem não tem IA nativa tem a IA na nuvem com a chave da própria pessoa (#144).
 
 ## Limitações conhecidas
 
