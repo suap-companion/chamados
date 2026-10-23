@@ -38,6 +38,9 @@ enum class ListMode { Normal, Archived, Snoozed }
 /** As listas de adiados e de arquivados (fora da aba "A fechar") vêm inteiras na primeira leitura. */
 fun pagesInOneGo(queue: Queue, mode: ListMode): Boolean = mode != ListMode.Normal && queue != Queue.TO_CLOSE
 
+/** O filtro "SLA estourado" só existe na fila de suporte. */
+fun slaFilter(queue: Queue, slaOnly: Boolean): Boolean = queue == Queue.SUPPORT && slaOnly
+
 /** O filtro de atribuição que vai ao SUAP: só a fila de suporte o tem ("mim" quando ligado). */
 fun assignmentFilter(queue: Queue, assignedToMe: Boolean): String? =
     if (queue == Queue.SUPPORT && assignedToMe) "mim" else null
@@ -56,6 +59,7 @@ enum class BatchAction(val label: String) {
 sealed interface Screen {
     data object Start : Screen
     data object Login : Screen
+    data object Today : Screen
     data object Tickets : Screen
     data class Detail(val id: String) : Screen
     data object Settings : Screen
@@ -163,6 +167,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Na fila de suporte, mostrar só os chamados atribuídos a mim (um filtro extra, além de ativos/adiados/arquivados). */
     var assignedToMe by mutableStateOf(false)
         private set
+
+    /** Filtro "SLA estourado" da fila de suporte. */
+    var slaOnly by mutableStateOf(false)
+        private set
+
+    /** A tela Hoje: os dados, a carga em andamento e o erro. */
+    var today by mutableStateOf<TodayData?>(null)
+    var todayLoading by mutableStateOf(false)
+    var todayError by mutableStateOf<String?>(null)
+    private var todayGeneration = 0
+
+    /** De onde a pessoa saiu para o detalhe, a nova abertura ou os documentos (para voltar ao mesmo lugar). */
+    private var origin: Screen = Screen.Today
+
+    /** A aba da barra inferior em uso. */
+    val tab: HomeTab
+        get() = if (screen == Screen.Today) HomeTab.Today else when (queue) {
+            Queue.MINE -> HomeTab.Mine
+            Queue.SUPPORT -> HomeTab.Support
+            Queue.TO_CLOSE -> HomeTab.ToClose
+        }
+
     /** Os adiados (número do chamado → quando volta, e se já voltou sem ninguém ver). */
     var snoozes by mutableStateOf<Map<String, SnoozeItem>>(emptyMap())
         private set
@@ -241,10 +267,76 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openTickets() {
-        screen = Screen.Tickets
-        refresh()
+        screen = Screen.Today
+        refreshToday()
         loadTitles()
         loadUser()
+    }
+
+    /** Vai para uma aba da barra inferior: Hoje ou uma das listas. */
+    fun chooseTab(next: HomeTab) {
+        val target = next.queue()
+        if (target == null) {
+            selection = emptySet()
+            screen = Screen.Today
+            refreshToday()
+        } else {
+            screen = Screen.Tickets
+            slaOnly = false
+            chooseQueue(target)
+        }
+    }
+
+    /** Abre uma lista já filtrada (os contadores da tela Hoje). */
+    fun openList(queue: Queue, mode: ListMode = ListMode.Normal, assignedToMe: Boolean = false, slaOnly: Boolean = false) {
+        selection = emptySet()
+        counts = null
+        this.queue = queue
+        this.mode = mode
+        this.assignedToMe = assignedToMe
+        this.slaOnly = slaOnly
+        searchText = ""
+        screen = Screen.Tickets
+        refresh()
+    }
+
+    /**
+     * Lê as listas que a tela Hoje resume: meus ativos, adiados, meus com SLA estourado (pela fila de suporte,
+     * atribuídos a mim) e meus resolvidos. Falhas só das listas auxiliares deixam a seção vazia; a dos
+     * ativos mostra o erro.
+     */
+    fun refreshToday() {
+        val generation = ++todayGeneration
+        viewModelScope.launch {
+            todayLoading = true
+            todayError = null
+            try {
+                val core = open()
+                val basic = ListQuery(
+                    title = null, view = ListView.NORMAL, text = null, statuses = emptyList(), allStatuses = false,
+                    since = null, until = null, page = null, assignment = null, slaExceeded = false,
+                )
+                val mine = core.list(Queue.MINE, basic)
+                val snoozed = runCatching {
+                    core.list(Queue.MINE, basic.copy(view = ListView.SNOOZED, allStatuses = true))
+                }.getOrDefault(emptyList())
+                val overdue = runCatching {
+                    core.list(Queue.SUPPORT, basic.copy(assignment = "mim", slaExceeded = true))
+                }.getOrDefault(emptyList())
+                val resolved = runCatching {
+                    core.list(Queue.MINE, basic.copy(statuses = listOf("resolvido")))
+                }.getOrDefault(emptyList())
+                runCatching { core.snoozed() }.onSuccess { found -> snoozes = found.associateBy { it.id } }
+                if (generation == todayGeneration) {
+                    today = todayData(mine, snoozed, overdue, resolved, snoozes)
+                    loadPhotos(mine + snoozed + resolved)
+                }
+            } catch (error: Throwable) {
+                if (!stillLoggedIn()) screen = Screen.Login else todayError = error.readable()
+            } finally {
+                if (generation == todayGeneration) todayLoading = false
+            }
+        }
     }
 
     /** A pessoa logada: mostra a que está guardada e atualiza com o que o SUAP mostra agora (nome, matrícula, foto). */
@@ -391,6 +483,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refresh()
     }
 
+    /** Liga ou desliga o filtro "SLA estourado" da fila de suporte. */
+    fun toggleSlaOnly() {
+        selection = emptySet()
+        slaOnly = !slaOnly
+        counts = null
+        refresh()
+    }
+
     /** Liga ou desliga o filtro "Atribuídos a mim" da fila de suporte. */
     fun toggleAssignedToMe() {
         selection = emptySet()
@@ -488,7 +588,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return ListQuery(
             title = if (marked) text else null, view = view, text = if (marked) null else text,
             statuses = emptyList(), allStatuses = marked && queue != Queue.TO_CLOSE, since = null, until = null, page = page,
-            assignment = assignmentFilter(queue, assignedToMe),
+            assignment = assignmentFilter(queue, assignedToMe), slaExceeded = slaFilter(queue, slaOnly),
         )
     }
 
@@ -509,7 +609,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val base = ListQuery(
                     title = null, view = ListView.NORMAL, text = if (mode != ListMode.Normal) null else text,
                     statuses = emptyList(), allStatuses = false, since = null, until = null, page = null,
-                    assignment = assignmentFilter(queue, assignedToMe),
+                    assignment = assignmentFilter(queue, assignedToMe), slaExceeded = slaFilter(queue, slaOnly),
                 )
                 runCatching { open().listCounts(queue, base) }.onSuccess { if (generation == listGeneration) counts = it }
             } catch (error: Throwable) {
@@ -577,6 +677,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openDetail(id: String) {
+        rememberOrigin()
         screen = Screen.Detail(id)
         detail = null
         actionMessage = null
@@ -774,7 +875,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Guarda a tela de lista de onde a pessoa saiu, para o botão voltar. */
+    private fun rememberOrigin() {
+        if (screen == Screen.Today || screen == Screen.Tickets) origin = screen
+    }
+
     fun openNewTicket() {
+        rememberOrigin()
         actionMessage = null
         clearPicked()
         screen = Screen.NewTicket
@@ -830,13 +937,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun back() {
         when (screen) {
             is Screen.Detail -> {
-                screen = Screen.Tickets
-                if (listStale) refresh()
+                screen = origin
+                if (origin == Screen.Today) refreshToday() else if (listStale) refresh()
             }
-            Screen.NewTicket -> screen = Screen.Tickets
+            Screen.NewTicket, Screen.Documents -> {
+                screen = origin
+                if (origin == Screen.Today) refreshToday()
+            }
             Screen.Settings -> start()
             Screen.Sync -> screen = Screen.Settings
-            Screen.Documents -> screen = Screen.Tickets
             else -> Unit
         }
     }
@@ -865,6 +974,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openDocuments() {
+        rememberOrigin()
         screen = Screen.Documents
     }
 
