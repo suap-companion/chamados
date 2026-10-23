@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import java.time.LocalDateTime
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +45,8 @@ fun DetailHeader(model: MainViewModel, view: TicketView) {
     val kind = view.heading ?: view.title
     val title = model.titles[view.id]
     var editing by remember(view.id) { mutableStateOf(false) }
+    var assuming by remember(view.id) { mutableStateOf(false) }
+    var assigning by remember(view.id) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -64,9 +67,62 @@ fun DetailHeader(model: MainViewModel, view: TicketView) {
                 view.statuses.forEach { StatusBadge(it) }
             }
         }
+        val facts = remember(view) { headerFacts(view, LocalDateTime.now()) }
+        val closed = DetailAction.available(view.statuses).isEmpty()
+        HeaderFactsContent(facts, closed) { if (facts.owner == null) assuming = true else assigning = true }
         model.detailError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
     if (editing) TitleDialog(model, view) { editing = false }
+    if (assuming) {
+        AlertDialog(
+            onDismissRequest = { assuming = false },
+            title = { Text("Assumir o chamado?") },
+            text = { Text("O chamado #${view.id} será atribuído a você.") },
+            confirmButton = { TextButton(onClick = { assuming = false; model.runAction(view.id, DetailAction.Assume, null, null) }) { Text("Assumir") } },
+            dismissButton = { TextButton(onClick = { assuming = false }) { Text("Voltar") } },
+        )
+    }
+    if (assigning) {
+        ManageDialog(
+            action = ManageAction.Assign,
+            view = view,
+            localTitle = model.titles[view.id],
+            onDismiss = { assigning = false },
+            onConfirm = { values -> assigning = false; model.runManage(view.id, ManageAction.Assign, values) },
+        )
+    }
+}
+
+/**
+ * Serviço e campus, interessado, responsável (com "Assumir" quando ninguém assumiu e "Atribuir" quando há
+ * atendente) e o prazo do SLA, em vermelho se já passou. Sem estado: `onOwnerAction` trata o toque no responsável.
+ */
+@Composable
+fun HeaderFactsContent(facts: HeaderFacts, closed: Boolean, onOwnerAction: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        facts.serviceLine()?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        facts.interested?.let { FactLine("Interessado", it) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FactLine("Responsável", facts.owner ?: "ninguém", Modifier.weight(1f))
+            if (!closed) TextButton(onClick = onOwnerAction) { Text(if (facts.owner == null) "Assumir" else "Atribuir") }
+        }
+        facts.deadline?.let {
+            FactLine("Prazo do SLA", if (facts.overdue) "$it (estourado)" else it, overdue = facts.overdue)
+        }
+    }
+}
+
+@Composable
+private fun FactLine(label: String, value: String, modifier: Modifier = Modifier, overdue: Boolean = false) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("$label:", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            fontWeight = if (overdue) FontWeight.Bold else null,
+        )
+    }
 }
 
 /** O diálogo de editar o título local: salvar, remover (texto vazio) ou desistir. */
