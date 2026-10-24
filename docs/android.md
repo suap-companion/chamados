@@ -279,3 +279,11 @@ O passo 2 troca o campo do número do vínculo por uma escolha de pessoa: **Eu m
 
 Limites: a busca depende do serviço do passo 1 (o token vem do formulário dele); com a pessoa escolhida, o aviso "Selecionado" mostra o nome quando ela não está nas listas. Pré-seleção: abre com a última pessoa escolhida; se o campo estava vazio, com "Eu mesmo".
 
+## Novo chamado, passo 3: descrição, anexos e depois de abrir (#185)
+
+O passo 3 reúne o que faltava: no topo, **chips** com o serviço e o interessado (tocar volta ao passo); o **título local** (opcional, até 120 caracteres; só no aparelho, sincronizado cifrado como os demais, gravado com `setTitle` depois que o chamado abre); a **descrição** com **Sugerir com IA** (`DraftKind::Describe`, com um chamado ainda inexistente como contexto: serviço e interessado); os **campos a mais do serviço** (`chamados-core::catalog::parse_service_fields`, fachada `Chamados.serviceFields`), que são os controles do formulário de abertura além dos de sempre (ex.: patrimônio, sala/local), com `*` e bloqueio do botão quando obrigatórios ficam vazios, e que vão em `ShareJob.extraFields` como o `--field` do CLI; os **anexos** (até 3): **Foto** (`PhotoButton`, o mesmo botão do diálogo de ações) e **Arquivo**, com os recusados e o motivo; **Enviar cópia por e-mail aos interessados** (marcado por padrão, `copyEmail`); e **Depois de abrir**: **Só abrir**, **Assumir** ou **Assumir e iniciar** (`afterOpen`, o `--assume`/`--start` do CLI).
+
+`apply_share` ganhou os passos `Assumir o chamado` e `Iniciar o atendimento` depois de `Abrir o chamado` (`AfterOpen` em `chamados-app::apply`): se um passo posterior falha, o chamado já está aberto, e o app abre o detalhe dele com a mensagem "O chamado #N foi aberto, mas: ..." (o mesmo vale para o título local). Retomar uma falha usa o `resumeFrom` de sempre.
+
+Limites: o texto dos campos é o valor cru que o SUAP espera (ex.: o patrimônio é o número interno do inventário; não há autocompletar); a IA só escreve a descrição a partir do que a pessoa digitou e do serviço escolhido; os campos "Sala/local" e semelhantes aparecem para qualquer serviço que os tenha no formulário.
+
