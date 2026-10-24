@@ -16,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use suap_core::{AppPaths, SuapClient, DEFAULT_PROFILE};
 
 use crate::{
-    flat_text, selector, CampusReply, CentersReply, TicketError, CAMPUS_PATH_PREFIX,
-    CENTERS_PATH_PREFIX,
+    flat_text, form_with_field, selector, CampusReply, CentersReply, TicketError,
+    CAMPUS_PATH_PREFIX, CENTERS_PATH_PREFIX, OPEN_PATH_PREFIX,
 };
 
 const FORMAT_VERSION: u32 = 1;
@@ -253,6 +253,91 @@ pub async fn fetch_catalog(client: &SuapClient, now: u64) -> Result<Catalog, Tic
     })
 }
 
+/// A field the "open ticket" form of a service asks for besides the usual ones (e.g. `patrimonio`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceField {
+    pub name: String,
+    pub label: String,
+    pub required: bool,
+    /// What the form offers by default.
+    pub value: String,
+}
+
+/// The fields the app already handles by itself.
+const KNOWN_FIELDS: [&str; 9] = [
+    "csrfmiddlewaretoken",
+    "descricao",
+    "uo",
+    "centro_atendimento",
+    "interessado",
+    "outros_interessados",
+    "requisitante",
+    "enviar_copia_email",
+    "meio_abertura",
+];
+
+/// The extra fields of the "open ticket" form: visible controls other than the usual ones, the
+/// attachments and the buttons, with the text of their label.
+pub fn parse_service_fields(html: &str) -> Vec<ServiceField> {
+    let document = Html::parse_document(html);
+    let Some(form) = form_with_field(&document, "descricao") else {
+        return Vec::new();
+    };
+    let mut fields: Vec<ServiceField> = Vec::new();
+    for control in form.select(&selector("input, select, textarea")) {
+        let element = control.value();
+        let Some(name) = element.attr("name") else {
+            continue;
+        };
+        let hidden = matches!(
+            element.attr("type"),
+            Some("hidden" | "checkbox" | "radio" | "file" | "submit" | "button")
+        );
+        let known = KNOWN_FIELDS.contains(&name) || name.starts_with("chamadoanexo_set");
+        if hidden || known || fields.iter().any(|field| field.name == name) {
+            continue;
+        }
+        let label = element
+            .attr("id")
+            .and_then(|id| {
+                form.select(&selector("label"))
+                    .find(|label| label.value().attr("for") == Some(id))
+            })
+            .map(flat_text)
+            .map(|text| text.trim_end_matches(['*', ':', ' ']).to_owned())
+            .filter(|text| !text.is_empty())
+            .unwrap_or_else(|| name.to_owned());
+        let value = match element.name() {
+            "textarea" => control.text().collect::<String>().trim().to_owned(),
+            "select" => control
+                .select(&selector("option[selected]"))
+                .next()
+                .and_then(|option| option.value().attr("value"))
+                .unwrap_or_default()
+                .to_owned(),
+            _ => element.attr("value").unwrap_or_default().to_owned(),
+        };
+        fields.push(ServiceField {
+            name: name.to_owned(),
+            label,
+            required: element.attr("required").is_some(),
+            value,
+        });
+    }
+    fields
+}
+
+/// Reads the extra fields the "open ticket" form of a service asks for.
+pub async fn fetch_service_fields(
+    client: &SuapClient,
+    service: u64,
+) -> Result<Vec<ServiceField>, TicketError> {
+    let html = client
+        .fetch_page(&format!("{OPEN_PATH_PREFIX}{service}/"))
+        .await?;
+    Ok(parse_service_fields(&html))
+}
+
 /// The campuses a service is offered at.
 pub fn parse_campuses(json: &str) -> Result<Vec<Place>, TicketError> {
     let reply: CampusReply = serde_json::from_str(json)
@@ -462,6 +547,55 @@ mod tests {
         );
     }
 
+    const SERVICE_FORM: &str = r#"<form name="busca"><input name="q"></form>
+        <form method="post">
+          <input type="hidden" name="csrfmiddlewaretoken" value="t">
+          <textarea name="descricao"></textarea>
+          <label for="id_patrimonio">Patrimônio: *</label><select id="id_patrimonio" name="patrimonio" required><option value="">---</option><option value="9" selected>PC 9</option></select>
+          <label for="id_local">Sala/local de atendimento</label><textarea id="id_local" name="local_atendimento">Sala 1</textarea>
+          <input name="telefone_adicional" value="8499">
+          <input name="telefone_adicional" value="repetido">
+          <select name="uo"></select>
+          <input type="checkbox" name="aceite">
+          <input type="file" name="chamadoanexo_set-0-anexo">
+          <input name="chamadoanexo_set-0-descricao">
+          <input type="submit" name="enviar">
+          <input value="sem nome">
+          <select name="vazio"></select>
+        </form>"#;
+
+    #[test]
+    fn lists_the_extra_fields_of_the_open_form() {
+        let fields = parse_service_fields(SERVICE_FORM);
+        let summary: Vec<_> = fields
+            .iter()
+            .map(|f| {
+                (
+                    f.name.as_str(),
+                    f.label.as_str(),
+                    f.required,
+                    f.value.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("patrimonio", "Patrimônio", true, "9"),
+                (
+                    "local_atendimento",
+                    "Sala/local de atendimento",
+                    false,
+                    "Sala 1"
+                ),
+                ("telefone_adicional", "telefone_adicional", false, "8499"),
+                ("vazio", "vazio", false, ""),
+            ]
+        );
+        // A page without the open form has no fields.
+        assert!(parse_service_fields("<p>nada</p>").is_empty());
+    }
+
     #[test]
     fn reads_campuses_and_centers() {
         let campuses = parse_campuses(r#"{"campus":[[1,"RE",false],[2,"ZL",true]]}"#).unwrap();
@@ -520,6 +654,9 @@ mod tests {
         assert_eq!(ids, vec![12, 13, 400, 7]);
         assert_eq!(catalog.find(400).unwrap().area, "Tecnologia da Informação");
 
+        page(&server, "/centralservicos/abrir_chamado/400/", SERVICE_FORM).await;
+        assert_eq!(fetch_service_fields(&client, 400).await.unwrap().len(), 4);
+        assert!(fetch_service_fields(&client, 1).await.is_err());
         assert_eq!(fetch_campuses(&client, 400).await.unwrap()[0].name, "ZL");
         assert_eq!(fetch_centers(&client, 400, "2").await.unwrap()[0].id, "5");
     }
