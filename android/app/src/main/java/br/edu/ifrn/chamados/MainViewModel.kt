@@ -11,9 +11,12 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.chamados_mobile.CatalogInfo
 import uniffi.chamados_mobile.Chamados
 import uniffi.chamados_mobile.ChamadosException
 import uniffi.chamados_mobile.ListQuery
+import uniffi.chamados_mobile.PlaceItem
+import uniffi.chamados_mobile.ServiceItem
 import uniffi.chamados_mobile.ListView
 import uniffi.chamados_mobile.Queue
 import uniffi.chamados_mobile.ShareJob
@@ -159,6 +162,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var serviceId by mutableStateOf(CoreAccess.serviceId(application))
     var interested by mutableStateOf(CoreAccess.interested(application))
+
+    /** O passo de "Novo chamado" e o que já foi preenchido (voltar não perde nada). */
+    var wizardStep by mutableStateOf(WizardStep.Service)
+        private set
+    var draft by mutableStateOf("")
+
+    /** O serviço padrão do perfil (o último usado) e os recentes. */
+    var profileServiceId by mutableStateOf("")
+        private set
+    var recents by mutableStateOf<List<String>>(emptyList())
+        private set
+    private var serviceNames by mutableStateOf<Map<String, String>>(emptyMap())
+
+    /** A busca no catálogo, o que achou e o que há guardado dele. */
+    var serviceQuery by mutableStateOf("")
+        private set
+    var serviceResults by mutableStateOf<List<ServiceItem>>(emptyList())
+        private set
+    var catalogInfo by mutableStateOf<CatalogInfo?>(null)
+        private set
+    var catalogBusy by mutableStateOf(false)
+        private set
+    var catalogMessage by mutableStateOf<String?>(null)
+        private set
+
+    /** Campus e centros de atendimento do serviço escolhido, e o que foi escolhido. */
+    var campuses by mutableStateOf<List<PlaceItem>>(emptyList())
+        private set
+    var centers by mutableStateOf<List<PlaceItem>>(emptyList())
+        private set
+    var campus by mutableStateOf<String?>(null)
+        private set
+    var center by mutableStateOf<String?>(null)
+        private set
+    var placesMessage by mutableStateOf<String?>(null)
+        private set
+    private var placesGeneration = 0
 
     // Títulos locais (número do chamado → título) e chamados arquivados (marca só nossa, sincronizada)
     var titles by mutableStateOf<Map<String, String>>(emptyMap())
@@ -901,7 +941,128 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         rememberOrigin()
         actionMessage = null
         clearPicked()
+        draft = ""
+        wizardStep = WizardStep.Service
+        serviceQuery = ""
+        serviceResults = emptyList()
+        profileServiceId = serviceId.trim()
+        recents = CoreAccess.recentServices(getApplication())
         screen = Screen.NewTicket
+        if (validServiceId(serviceId)) chooseService(serviceId.trim()) else clearPlaces()
+    }
+
+    /** O nome do serviço, se o catálogo guardado o conhece. */
+    fun serviceName(id: String): String? = serviceNames[id]
+
+    fun wizardNext() {
+        wizardStep = WizardStep.entries.getOrElse(wizardStep.ordinal + 1) { wizardStep }
+    }
+
+    /** Volta um passo; no primeiro, sai do assistente. Nada do que foi preenchido se perde. */
+    fun wizardBack() {
+        if (wizardStep == WizardStep.Service) back() else wizardStep = WizardStep.entries[wizardStep.ordinal - 1]
+    }
+
+    private fun clearPlaces() {
+        placesGeneration++
+        campuses = emptyList()
+        centers = emptyList()
+        campus = null
+        center = null
+        placesMessage = null
+    }
+
+    /** Lê o que há guardado do catálogo e os nomes dos serviços padrão e recentes. */
+    fun loadCatalogInfo() {
+        viewModelScope.launch {
+            val core = open()
+            runCatching { withContext(Dispatchers.IO) { core.catalogInfo() } }.onSuccess { catalogInfo = it }
+            val wanted = (listOf(profileServiceId) + recents).filter { it.isNotBlank() }
+            val found = withContext(Dispatchers.IO) {
+                wanted.mapNotNull { id -> id.toULongOrNull()?.let { number -> runCatching { core.catalogFind(number) }.getOrNull() } }
+            }
+            serviceNames = serviceNames + found.associate { it.id.toString() to it.name }
+        }
+    }
+
+    /** Busca por nome (ou número) no catálogo guardado. */
+    fun searchServices(text: String) {
+        serviceQuery = text
+        if (text.isBlank()) {
+            serviceResults = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            val core = open()
+            val found = runCatching { withContext(Dispatchers.IO) { core.catalogSearch(text, 20u) } }.getOrDefault(emptyList())
+            if (text == serviceQuery) serviceResults = found
+        }
+    }
+
+    /** Lê de novo o catálogo no SUAP (percorre as áreas de serviço). */
+    fun refreshCatalog() {
+        if (catalogBusy) return
+        viewModelScope.launch {
+            catalogBusy = true
+            catalogMessage = null
+            try {
+                catalogInfo = open().catalogRefresh()
+                searchServices(serviceQuery)
+                loadCatalogInfo()
+            } catch (error: Throwable) {
+                catalogMessage = error.readable()
+            } finally {
+                catalogBusy = false
+            }
+        }
+    }
+
+    /** Escolhe o serviço e busca os campus e centros dele; o campus da pessoa e o único centro já vêm escolhidos. */
+    fun chooseService(id: String, name: String? = null) {
+        serviceId = id
+        if (name != null) serviceNames = serviceNames + (id to name)
+        clearPlaces()
+        val number = id.trim().toULongOrNull() ?: return
+        val generation = placesGeneration
+        viewModelScope.launch {
+            try {
+                val found = open().serviceCampuses(number)
+                if (generation != placesGeneration) return@launch
+                campuses = found
+                val chosen = defaultPlace(found)
+                campus = chosen?.id
+                if (chosen != null) loadCenters(number, chosen.id, generation)
+            } catch (error: Throwable) {
+                if (generation == placesGeneration) placesMessage = error.readable()
+            }
+        }
+    }
+
+    fun chooseCampus(id: String) {
+        val number = serviceId.trim().toULongOrNull() ?: return
+        campus = id
+        centers = emptyList()
+        center = null
+        val generation = ++placesGeneration
+        viewModelScope.launch {
+            try {
+                loadCenters(number, id, generation)
+            } catch (error: Throwable) {
+                if (generation == placesGeneration) placesMessage = error.readable()
+            }
+        }
+    }
+
+    private suspend fun loadCenters(service: ULong, campusId: String, generation: Int) {
+        val found = open().serviceCenters(service, campusId)
+        if (generation != placesGeneration) return
+        centers = found
+        center = found.singleOrNull()?.id
+        placesMessage = if (found.isEmpty()) "Este serviço não tem centro de atendimento neste campus." else null
+    }
+
+    fun chooseCenter(id: String) {
+        center = id
     }
 
     /** Abre um chamado novo (o serviço é o número dele no SUAP) e vai para o detalhe. */
@@ -917,7 +1078,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             actionMessage = null
             try {
                 val job = ShareJob(
-                    kind = ShareKind.CREATE, serviceId = service.toULong(), campus = null, center = null,
+                    kind = ShareKind.CREATE, serviceId = service.toULong(), campus = campus, center = center,
                     interested = interested.trim().ifEmpty { null },
                     ticket = null, text = text.trim(), title = null,
                     filePaths = picked.map { it.path }, attachmentDescription = null, resumeFrom = 0u,
@@ -926,6 +1087,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val created = outcome.ticket
                 if (outcome.done && created != null) {
                     CoreAccess.saveServiceId(getApplication(), service.toString())
+                    CoreAccess.saveRecentServices(getApplication(), withRecent(CoreAccess.recentServices(getApplication()), service.toString()))
                     CoreAccess.saveInterested(getApplication(), interested.trim())
                     clearPicked()
                     openDetail(created)

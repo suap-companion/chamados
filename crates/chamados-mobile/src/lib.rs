@@ -8,6 +8,7 @@ uniffi::setup_scaffolding!();
 
 mod account;
 mod assisting;
+mod catalog;
 mod cloud;
 mod docs;
 mod exporting;

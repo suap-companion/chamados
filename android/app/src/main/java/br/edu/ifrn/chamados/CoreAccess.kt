@@ -33,6 +33,14 @@ object CoreAccess {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("service_id", id).apply()
     }
 
+    /** Os últimos serviços usados ao abrir chamados pelo app, do mais novo ao mais antigo ("400,12,7"). */
+    fun recentServices(context: Context): List<String> =
+        parseRecents(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("recent_services", "") ?: "")
+
+    fun saveRecentServices(context: Context, ids: List<String>) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("recent_services", ids.joinToString(",")).apply()
+    }
+
     /** O interessado (vínculo) usado da última vez ao abrir um chamado. */
     fun interested(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("interested", "") ?: ""

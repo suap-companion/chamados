@@ -9,6 +9,7 @@ use thiserror::Error;
 use url::Url;
 
 pub mod archive;
+pub mod catalog;
 pub mod filter;
 pub mod manage;
 pub mod profile;

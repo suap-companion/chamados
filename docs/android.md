@@ -263,3 +263,13 @@ A primeira tela depois do login é **Hoje** (`Today.kt`), com a barra inferior *
 
 Limites: a lista não traz serviço, interessado nem a hora da resolução, então o cartão mostra o que já mostrava (número, situação, título local ou assunto) e **Resolvidos** lista os resolvidos que o SUAP devolve para a pessoa, sem a hora. O SLA estourado conta só a primeira página da fila de suporte. A tela só é testada no emulador; o botão voltar do detalhe, de "Novo chamado" e dos Documentos leva de volta ao lugar de onde se saiu (Hoje ou lista).
 
+## Novo chamado em passos e catálogo de serviços (#183)
+
+"Novo chamado" é um assistente de três passos com barra de progresso ("Passo 1 de 3 · Serviço"): **Serviço**, **Interessado** e **Descrição**. Voltar entre os passos não perde o que foi preenchido; **Continuar** fica no rodapé (no último passo, **Abrir chamado**). Os passos 2 e 3 ainda são os campos de antes; eles ganham o desenho próprio nas issues seguintes da #178.
+
+**Passo 1.** Mostra o **Padrão do perfil** (o último serviço usado), os **Recentes** (os últimos cinco abertos pelo app, guardados em `recent_services`) e a **busca**: por nome (sem diferenciar maiúsculas e acentos, todas as palavras) ou pelo número do serviço, que continua aceito (`Usar o serviço #N` quando o catálogo não o conhece). Abaixo ficam **Campus** (vem escolhido o do usuário, marcado pelo SUAP) e **Centro de atendimento**: com um centro só, ele vale sozinho; com vários, a escolha é obrigatória (como no `chamados open`) e o **Continuar** fica desligado até escolher. Campus e centro são lidos do SUAP ao escolher o serviço (`service_campuses`, `service_centers`) e vão no `ShareJob` (`campus`, `center`).
+
+**Catálogo.** O SUAP não tem uma lista de serviços: ela é montada percorrendo as **áreas de serviço** (`/centralservicos/listar_area_servico/`) e, em cada uma, as categorias e **grupos de serviço** (`/centralservicos/selecionar_servico_abertura/<área>/`), com o número tirado do link `visualizar_solucoes/<id>/`. Isso é uma leitura por área, então o resultado fica **em cache** no aparelho (`services.json`, ou `services-<perfil>.json`; `chamados-core::catalog`, reaproveitável pelo CLI) e só é lido de novo quando a pessoa toca em **Atualizar catálogo** (`Chamados.catalogRefresh`). A busca (`catalogSearch`) e o nome dos recentes saem do cache, sem rede. Sem catálogo lido, a busca fica vazia e o número do serviço ainda funciona.
+
+Limites: o catálogo mostra o que o SUAP oferece ao usuário logado (serviços internos aparecem marcados); o cache não expira sozinho; o CLI ainda não tem comando para usá-lo. Testes: Rust com SUAP simulado (100% de linhas) e a lógica do assistente em JUnit; a leitura de ponta a ponta no SUAP real fica para o aparelho.
+
