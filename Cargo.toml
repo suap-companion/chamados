@@ -18,7 +18,7 @@ suap-sync = { git = "https://github.com/suap-companion/suap-kit", tag = "v0.2.0"
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "0.55.6"
+version = "0.55.7"
 
 # Perfil das bibliotecas do aplicativo móvel: menor, não mais rápido (`cargo ndk ... --profile mobile`).
 [profile.mobile]
