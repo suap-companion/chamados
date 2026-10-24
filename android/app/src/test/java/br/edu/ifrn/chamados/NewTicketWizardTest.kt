@@ -156,3 +156,33 @@ class DescriptionStepTest {
         assertEquals(listOf("Só abrir", "Assumir", "Assumir e iniciar"), uniffi.chamados_mobile.AfterOpen.entries.map { it.label() })
     }
 }
+
+/** Onde "Novo chamado" começa. */
+class StartStepTest {
+    @Test
+    fun `com os dois padroes e o atalho ligado abre direto na descricao`() {
+        assertEquals(WizardStep.Description, startStep(shortcut = true, serviceId = "400", hasInterestedDefault = true))
+    }
+
+    @Test
+    fun `sem um dos padroes comeca pelo passo que falta`() {
+        assertEquals(WizardStep.Service, startStep(true, "", true))
+        assertEquals(WizardStep.Service, startStep(true, "abc", false))
+        assertEquals(WizardStep.Interested, startStep(true, "400", false))
+    }
+
+    @Test
+    fun `com o atalho desligado comeca sempre pelo servico`() {
+        assertEquals(WizardStep.Service, startStep(false, "400", true))
+    }
+
+    @Test
+    fun `abrir exige o centro escolhido quando ha varios`() {
+        val two = listOf(
+            uniffi.chamados_mobile.PlaceItem("5", "A", false),
+            uniffi.chamados_mobile.PlaceItem("6", "B", false),
+        )
+        assertFalse(canContinue(WizardStep.Description, "400", two, null, "Texto"))
+        assertTrue(canContinue(WizardStep.Description, "400", two, "6", "Texto"))
+    }
+}

@@ -474,6 +474,7 @@ fun SettingsScreen(model: MainViewModel) {
             OutlinedButton(onClick = model::openSync, modifier = Modifier.fillMaxWidth()) { Text("Sincronização entre dispositivos") }
             OutlinedButton(onClick = model::logout, modifier = Modifier.fillMaxWidth()) { Text("Sair (esquecer a sessão)") }
             WatchSection()
+            NewTicketShortcutSection()
             AssistantSection(onDocuments = model::openDocuments)
             Text("Versão ${uniffi.chamados_mobile.coreVersion()}", style = MaterialTheme.typography.labelMedium)
         }

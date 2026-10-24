@@ -59,6 +59,16 @@ fun stepTitle(step: WizardStep): String = "Passo ${step.ordinal + 1} de ${Wizard
 /** A fração da barra de progresso: o passo atual conta como feito. */
 fun stepProgress(step: WizardStep): Float = (step.ordinal + 1).toFloat() / WizardStep.entries.size
 
+/**
+ * Onde "Novo chamado" começa: com o atalho ligado e os dois padrões (serviço e interessado) definidos, direto
+ * no passo 3; senão, no passo que falta (o serviço primeiro); com o atalho desligado, sempre no passo 1.
+ */
+fun startStep(shortcut: Boolean, serviceId: String, hasInterestedDefault: Boolean): WizardStep = when {
+    !shortcut || !validServiceId(serviceId) -> WizardStep.Service
+    !hasInterestedDefault -> WizardStep.Interested
+    else -> WizardStep.Description
+}
+
 /** Quantos serviços usados por último se lembram. */
 const val MAX_RECENTS = 5
 
@@ -114,7 +124,8 @@ fun canContinue(
     when (step) {
         WizardStep.Service -> validServiceId(serviceId) && (!centerRequired(centers) || center != null)
         WizardStep.Interested -> true
-        WizardStep.Description -> description.isNotBlank() && !missingRequired
+        WizardStep.Description ->
+            description.isNotBlank() && !missingRequired && (!centerRequired(centers) || center != null)
     }
 
 /** O limite do título local (o mesmo do núcleo). */
@@ -314,6 +325,9 @@ private fun DescriptionStep(model: MainViewModel) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         AssistChip(onClick = { model.goToStep(WizardStep.Service) }, label = { Text(model.serviceName(model.serviceId.trim()) ?: "Serviço #${model.serviceId.trim()}") })
         AssistChip(onClick = { model.goToStep(WizardStep.Interested) }, label = { Text(model.interestedName ?: "Eu mesmo") })
+    }
+    if (centerRequired(model.centers) && model.center == null) {
+        Text("Falta escolher o centro de atendimento: toque no serviço acima.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
     }
     OutlinedTextField(
         value = model.title,

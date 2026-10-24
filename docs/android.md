@@ -287,3 +287,7 @@ O passo 3 reúne o que faltava: no topo, **chips** com o serviço e o interessad
 
 Limites: o texto dos campos é o valor cru que o SUAP espera (ex.: o patrimônio é o número interno do inventário; não há autocompletar); a IA só escreve a descrição a partir do que a pessoa digitou e do serviço escolhido; os campos "Sala/local" e semelhantes aparecem para qualquer serviço que os tenha no formulário.
 
+## Atalho do novo chamado (#186)
+
+Com o serviço e o interessado padrão definidos, o **+** abre "Novo chamado" direto no **passo 3** (a barra mostra "Passo 3 de 3" e os chips do serviço e do interessado levam aos passos 1 e 2), tão rápido quanto `chamados open -d "..."`. O padrão do serviço é o último usado (`service_id`); o do interessado existe depois do primeiro chamado aberto pelo app (a chave `interested` guarda a escolha, vazia = "eu mesmo"). Sem um dos padrões, o assistente começa pelo passo que falta (`startStep`: serviço, depois interessado). Em Configurações, **Atalho do novo chamado** desliga o atalho (preferência `new_ticket_shortcut`, ligada por padrão): desligado, começa sempre pelo passo 1. Abrir direto no passo 3 não pula a escolha obrigatória do centro: se o serviço padrão tem vários centros, o botão **Abrir chamado** fica desligado e o aviso manda tocar no serviço para escolher.
+
