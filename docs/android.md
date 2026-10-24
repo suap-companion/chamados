@@ -273,3 +273,9 @@ Limites: a lista não traz serviço, interessado nem a hora da resolução, ent�
 
 Limites: o catálogo mostra o que o SUAP oferece ao usuário logado (serviços internos aparecem marcados); o cache não expira sozinho; o CLI ainda não tem comando para usá-lo. Testes: Rust com SUAP simulado (100% de linhas) e a lógica do assistente em JUnit; a leitura de ponta a ponta no SUAP real fica para o aparelho.
 
+## Novo chamado, passo 2: interessado (#184)
+
+O passo 2 troca o campo do número do vínculo por uma escolha de pessoa: **Eu mesmo** no topo (não manda interessado; o SUAP usa a pessoa logada), **Recentes** (os últimos cinco escolhidos ao abrir chamados pelo app, guardados em `recent_people`, com o nome para mostrar) e **Buscar pessoa** por matrícula ou nome (a partir de dois caracteres; botão **Buscar** ou o Enter do teclado). A busca usa a do próprio formulário do serviço escolhido no passo 1 (`chamados-core::manage::search_people`, a mesma busca que o `interested add` usa; fachada `Chamados.searchPeople`): ela abre o formulário de abertura do serviço, tira o token de busca e consulta `/json/comum/vinculo/`. Cada resultado traz o número do vínculo, que é o que vai como interessado ao abrir. Não existe "criar pessoa": o SUAP não cria pessoas pelo chamado.
+
+Limites: a busca depende do serviço do passo 1 (o token vem do formulário dele); com a pessoa escolhida, o aviso "Selecionado" mostra o nome quando ela não está nas listas. Pré-seleção: abre com a última pessoa escolhida; se o campo estava vazio, com "Eu mesmo".
+

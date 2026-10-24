@@ -839,3 +839,53 @@ async fn attaches_a_file_to_an_open_ticket_with_a_description() {
         3
     );
 }
+
+#[tokio::test]
+async fn searches_people_with_the_open_form_search() {
+    let server = MockServer::start().await;
+    page(
+        &server,
+        "GET",
+        "/centralservicos/abrir_chamado/400/",
+        200,
+        PEOPLE_PAGE,
+    )
+    .await;
+    page(
+        &server,
+        "GET",
+        "/centralservicos/abrir_chamado/9/",
+        200,
+        "<form></form>",
+    )
+    .await;
+    Mock::given(method("GET"))
+        .and(path("/json/comum/vinculo/"))
+        .and(query_param("q", "souza"))
+        .and(query_param("control", r#"{"data": "abc"}"#))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"{"items": [{"id": 2, "html": "<dd class=\"title\">Ana Souza (Mat. 2080883)</dd>"},
+                {"id": 7, "html": "<dd class=\"title\">Carlos Souza (Mat. 111)</dd>"}]}"#,
+        ))
+        .mount(&server)
+        .await;
+    let (_dir, client) = client_for(&server).await;
+
+    let found = chamados_core::manage::search_people(&client, 400, " souza ")
+        .await
+        .unwrap();
+    let names: Vec<_> = found
+        .iter()
+        .map(|p| (p.value.as_str(), p.label.as_str()))
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            ("2", "Ana Souza (Mat. 2080883)"),
+            ("7", "Carlos Souza (Mat. 111)")
+        ]
+    );
+    // A form without the search token cannot search.
+    let error = chamados_core::manage::search_people(&client, 9, "x").await;
+    assert!(error.unwrap_err().to_string().contains("no person search"));
+}
