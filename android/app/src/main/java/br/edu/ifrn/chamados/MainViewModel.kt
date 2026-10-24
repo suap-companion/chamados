@@ -970,7 +970,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         title = ""
         copyEmail = true
         afterOpen = AfterOpen.NOTHING
-        wizardStep = WizardStep.Service
+        wizardStep = startStep(
+            CoreAccess.newTicketShortcut(getApplication()), serviceId, CoreAccess.hasInterestedDefault(getApplication()),
+        )
         serviceQuery = ""
         serviceResults = emptyList()
         profileServiceId = serviceId.trim()

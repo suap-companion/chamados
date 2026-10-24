@@ -49,6 +49,18 @@ object CoreAccess {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("recent_people", encodeRecentPeople(people)).apply()
     }
 
+    /** O "+" abre direto no passo 3 quando o serviço e o interessado padrão já existem (ligado por padrão). */
+    fun newTicketShortcut(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("new_ticket_shortcut", true)
+
+    fun saveNewTicketShortcut(context: Context, value: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("new_ticket_shortcut", value).apply()
+    }
+
+    /** Já houve um chamado aberto pelo app (o interessado, mesmo vazio = "eu mesmo", virou o padrão)? */
+    fun hasInterestedDefault(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).contains("interested")
+
     /** O interessado (vínculo) usado da última vez ao abrir um chamado. */
     fun interested(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("interested", "") ?: ""
