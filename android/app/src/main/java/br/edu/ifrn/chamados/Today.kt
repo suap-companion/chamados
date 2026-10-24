@@ -3,10 +3,13 @@ package br.edu.ifrn.chamados
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -150,7 +153,7 @@ fun HomeNavigation(selected: HomeTab, onSelect: (HomeTab) -> Unit) {
 fun CounterCard(label: String, value: Int, warning: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val color = if (warning && value > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
     Card(
-        modifier = modifier.clickable(role = Role.Button, onClick = onClick).semantics(mergeDescendants = true) { },
+        modifier = modifier.fillMaxHeight().clickable(role = Role.Button, onClick = onClick).semantics(mergeDescendants = true) { },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -165,7 +168,8 @@ fun CounterCard(label: String, value: Int, warning: Boolean, modifier: Modifier 
 fun TodayHeader(date: LocalDate, counters: TodayCounters, onAttending: () -> Unit, onOverdue: () -> Unit, onReturned: () -> Unit) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(longDate(date).replaceFirstChar { it.titlecase(Locale.forLanguageTag("pt-BR")) }, style = MaterialTheme.typography.titleLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        // Altura da linha igual à do maior cartão: um rótulo que quebra em duas linhas não desiguala os outros.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max)) {
             CounterCard("Em atendimento", counters.attending, warning = false, modifier = Modifier.weight(1f), onClick = onAttending)
             CounterCard("SLA estourado", counters.overdue, warning = true, modifier = Modifier.weight(1f), onClick = onOverdue)
             CounterCard("Voltou do adiamento", counters.returned, warning = false, modifier = Modifier.weight(1f), onClick = onReturned)

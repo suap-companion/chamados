@@ -167,6 +167,7 @@ class ShareViewModel(application: Application) : AndroidViewModel(application) {
                     text = text.trim().ifEmpty { null },
                     title = title,
                     filePaths = files.map { it.path },
+                    attachmentDescription = null,
                     resumeFrom = (outcome?.completed ?: 0u),
                 )
                 val result = (core ?: CoreAccess.open(getApplication())).applyShare(job)

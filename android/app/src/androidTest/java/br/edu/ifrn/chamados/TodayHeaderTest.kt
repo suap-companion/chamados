@@ -3,6 +3,7 @@ package br.edu.ifrn.chamados
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.performClick
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
@@ -41,5 +42,13 @@ class TodayHeaderTest {
         compose.onNodeWithText("SLA estourado").performClick()
         compose.onNodeWithText("Voltou do adiamento").performClick()
         assertEquals(listOf("atendimento", "sla", "voltou"), taps)
+    }
+
+    @Test
+    fun the_three_cards_have_the_same_height_even_when_a_label_wraps() {
+        show(TodayCounters(attending = 3, overdue = 2, returned = 1))
+        val heights = listOf("Em atendimento", "SLA estourado", "Voltou do adiamento")
+            .map { compose.onNodeWithText(it).getBoundsInRoot().let { box -> box.bottom - box.top } }
+        assertEquals(1, heights.toSet().size)
     }
 }
