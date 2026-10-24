@@ -41,6 +41,14 @@ object CoreAccess {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("recent_services", ids.joinToString(",")).apply()
     }
 
+    /** Os últimos interessados escolhidos ao abrir chamados pelo app (uma pessoa por linha, "vínculo<TAB>nome"). */
+    fun recentPeople(context: Context): List<RecentPerson> =
+        parseRecentPeople(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("recent_people", "") ?: "")
+
+    fun saveRecentPeople(context: Context, people: List<RecentPerson>) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("recent_people", encodeRecentPeople(people)).apply()
+    }
+
     /** O interessado (vínculo) usado da última vez ao abrir um chamado. */
     fun interested(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("interested", "") ?: ""
