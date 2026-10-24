@@ -20,6 +20,8 @@ pub enum DraftKind {
     Reopen,
     Escalate,
     Return,
+    /// A descrição de um chamado a abrir.
+    Describe,
 }
 
 impl From<DraftKind> for assist::DraftKind {
@@ -35,6 +37,7 @@ impl From<DraftKind> for assist::DraftKind {
             DraftKind::Reopen => Self::Reopen,
             DraftKind::Escalate => Self::Escalate,
             DraftKind::Return => Self::Return,
+            DraftKind::Describe => Self::Describe,
         }
     }
 }
@@ -252,7 +255,7 @@ mod tests {
         }
     }
 
-    const ALL: [DraftKind; 10] = [
+    const ALL: [DraftKind; 11] = [
         DraftKind::Title,
         DraftKind::Comment,
         DraftKind::InternalNote,
@@ -263,6 +266,7 @@ mod tests {
         DraftKind::Reopen,
         DraftKind::Escalate,
         DraftKind::Return,
+        DraftKind::Describe,
     ];
 
     #[test]

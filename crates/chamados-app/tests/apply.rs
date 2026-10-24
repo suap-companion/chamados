@@ -1,7 +1,7 @@
 //! `apply_share` contra um SUAP simulado: a ordem dos passos, as recusas antes de enviar e a
 //! retomada depois de uma falha.
 
-use chamados_app::apply::{apply_share, ShareAction, ShareReport, ShareRequest};
+use chamados_app::apply::{apply_share, AfterOpen, ShareAction, ShareReport, ShareRequest};
 use chamados_core::{Attachment, SuapTicketSource, TicketQueue};
 use suap_core::{AppPaths, SuapClient, SuapConfig};
 use tempfile::{tempdir, TempDir};
@@ -179,6 +179,9 @@ async fn a_request_that_makes_no_sense_is_refused_before_anything_is_sent() {
                 campus: None,
                 center: None,
                 interested: None,
+                extra_fields: Vec::new(),
+                copy_email: false,
+                then: AfterOpen::Nothing,
             },
             None,
             text,
@@ -268,6 +271,9 @@ async fn opening_a_ticket_reports_what_suap_refuses() {
             campus: Some("1".to_owned()),
             center: Some("2".to_owned()),
             interested: Some("1".to_owned()),
+            extra_fields: Vec::new(),
+            copy_email: false,
+            then: AfterOpen::Nothing,
         },
         None,
         Some("descrição"),
@@ -309,4 +315,113 @@ async fn the_attachment_description_goes_to_suap_and_defaults_to_the_file_name()
     assert!(last_post_body(&server)
         .await
         .contains("log-do-servidor.pdf"));
+}
+
+#[tokio::test]
+async fn a_new_ticket_carries_its_extra_fields_and_can_be_assumed_and_started() {
+    let server = MockServer::start().await;
+    let (_dir, client) = client_for(&server).await;
+    let source = SuapTicketSource::new(&client, TicketQueue::Support);
+    page(
+        &server,
+        "GET",
+        "/centralservicos/abrir_chamado/7/",
+        200,
+        r#"<form method="post"><textarea name="descricao"></textarea><input name="patrimonio"></form>"#,
+    )
+    .await;
+    page(
+        &server,
+        "POST",
+        "/centralservicos/abrir_chamado/7/",
+        200,
+        "Número do chamado: 31",
+    )
+    .await;
+    page(
+        &server,
+        "GET",
+        "/centralservicos/auto_atribuir_chamado/31/",
+        200,
+        "ok",
+    )
+    .await;
+    page(
+        &server,
+        "GET",
+        "/centralservicos/colocar_em_atendimento/31/",
+        200,
+        "ok",
+    )
+    .await;
+
+    let create = |then: AfterOpen| {
+        request(
+            ShareAction::Create {
+                service_id: 7,
+                campus: Some("1".to_owned()),
+                center: Some("2".to_owned()),
+                interested: None,
+                extra_fields: vec![("patrimonio".to_owned(), "12345".to_owned())],
+                copy_email: true,
+                then,
+            },
+            None,
+            Some("Computador não liga"),
+        )
+    };
+
+    let report = apply_share(&source, &create(AfterOpen::AssumeAndStart))
+        .await
+        .unwrap();
+    assert_eq!(
+        labels(&report),
+        [
+            "Abrir o chamado",
+            "Assumir o chamado",
+            "Iniciar o atendimento"
+        ]
+    );
+    assert!(report.is_done(), "{:?}", report.steps);
+    assert_eq!(report.ticket.as_deref(), Some("31"));
+    let body = last_post_body(&server).await;
+    assert!(body.contains("patrimonio=12345"), "{body}");
+    assert!(body.contains("enviar_copia_email=on"), "{body}");
+
+    let assumed = apply_share(&source, &create(AfterOpen::Assume))
+        .await
+        .unwrap();
+    assert_eq!(labels(&assumed), ["Abrir o chamado", "Assumir o chamado"]);
+    let only = apply_share(&source, &create(AfterOpen::Nothing))
+        .await
+        .unwrap();
+    assert_eq!((only.completed, only.total), (1, 1));
+
+    // The ticket is open even when a later step fails: the report keeps its number and the step that failed.
+    let broken = MockServer::start().await;
+    let (_dir2, client2) = client_for(&broken).await;
+    let source2 = SuapTicketSource::new(&client2, TicketQueue::Support);
+    page(
+        &broken,
+        "GET",
+        "/centralservicos/abrir_chamado/7/",
+        200,
+        r#"<form method="post"><textarea name="descricao"></textarea></form>"#,
+    )
+    .await;
+    page(
+        &broken,
+        "POST",
+        "/centralservicos/abrir_chamado/7/",
+        200,
+        "Número do chamado: 32",
+    )
+    .await;
+    let report = apply_share(&source2, &create(AfterOpen::Assume))
+        .await
+        .unwrap();
+    assert!(!report.is_done());
+    assert_eq!(report.ticket.as_deref(), Some("32"));
+    assert_eq!(report.completed, 1);
+    assert!(report.steps[1].error.is_some());
 }

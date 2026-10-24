@@ -3,8 +3,10 @@
 //! para atualizar) e lista os campus e centros de atendimento do serviço escolhido.
 
 use chamados_core::catalog::{
-    catalog_file, fetch_campuses, fetch_catalog, fetch_centers, Catalog, Place, ServiceEntry,
+    catalog_file, fetch_campuses, fetch_catalog, fetch_centers, fetch_service_fields, Catalog,
+    Place, ServiceEntry,
 };
+use chamados_core::manage::search_people;
 
 use crate::{failed, sync::unix_now, Chamados, ChamadosError};
 
@@ -65,6 +67,23 @@ impl From<Place> for PlaceItem {
     }
 }
 
+/// Uma pessoa achada na busca do SUAP.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct PersonItem {
+    /// O número do vínculo (o que se informa como interessado).
+    pub id: String,
+    pub name: String,
+}
+
+/// Um campo a mais que o formulário do serviço pede (ex.: patrimônio).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ServiceFieldItem {
+    pub name: String,
+    pub label: String,
+    pub required: bool,
+    pub value: String,
+}
+
 fn info(catalog: Option<&Catalog>) -> CatalogInfo {
     CatalogInfo {
         count: catalog.map_or(0, |catalog| catalog.services.len() as u32),
@@ -118,6 +137,44 @@ impl Chamados {
             .await
             .map_err(failed)?;
         Ok(places.into_iter().map(PlaceItem::from).collect())
+    }
+
+    /// Busca pessoas por matrícula ou nome, com a busca do formulário do serviço (a mesma de escolher o
+    /// interessado no site). O `id` de cada uma é o que vai como interessado ao abrir o chamado.
+    pub async fn search_people(
+        &self,
+        service_id: u64,
+        query: String,
+    ) -> Result<Vec<PersonItem>, ChamadosError> {
+        let found = search_people(&self.client, service_id, &query)
+            .await
+            .map_err(failed)?;
+        Ok(found
+            .into_iter()
+            .map(|person| PersonItem {
+                id: person.value,
+                name: person.label,
+            })
+            .collect())
+    }
+
+    /// Os campos a mais que o formulário do serviço pede, além dos de sempre.
+    pub async fn service_fields(
+        &self,
+        service_id: u64,
+    ) -> Result<Vec<ServiceFieldItem>, ChamadosError> {
+        let fields = fetch_service_fields(&self.client, service_id)
+            .await
+            .map_err(failed)?;
+        Ok(fields
+            .into_iter()
+            .map(|field| ServiceFieldItem {
+                name: field.name,
+                label: field.label,
+                required: field.required,
+                value: field.value,
+            })
+            .collect())
     }
 
     /// Os centros de atendimento do serviço no campus.
@@ -256,5 +313,58 @@ mod tests {
         assert_eq!(centers[0].name, "Central DEAD");
         assert!(chamados.service_centers(400, "9".to_owned()).await.is_err());
         assert!(chamados.service_campuses(1).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn the_extra_fields_of_a_service_come_from_its_form() {
+        let server = MockServer::start().await;
+        let (_dir, chamados) = app(&server);
+        page(
+            &server,
+            "/centralservicos/abrir_chamado/400/",
+            r#"<form><textarea name="descricao"></textarea><label for="p">Patrimônio *</label><input id="p" name="patrimonio" required></form>"#,
+        )
+        .await;
+        let fields = chamados.service_fields(400).await.unwrap();
+        assert_eq!(fields.len(), 1);
+        assert_eq!(
+            (
+                fields[0].name.as_str(),
+                fields[0].label.as_str(),
+                fields[0].required
+            ),
+            ("patrimonio", "Patrimônio", true)
+        );
+        assert!(chamados.service_fields(9).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn people_are_searched_with_the_form_of_the_service() {
+        let server = MockServer::start().await;
+        let (_dir, chamados) = app(&server);
+        page(
+            &server,
+            "/centralservicos/abrir_chamado/400/",
+            r#"<form><script>data: { q: params.term, control: 'abc' }</script></form>"#,
+        )
+        .await;
+        page(
+            &server,
+            "/json/comum/vinculo/",
+            r#"{"items": [{"id": 38349, "html": "<dd class=\"title\">Wagner (Mat. 1723011)</dd>"}]}"#,
+        )
+        .await;
+        let found = chamados
+            .search_people(400, "wagner".to_owned())
+            .await
+            .unwrap();
+        assert_eq!(
+            found,
+            vec![PersonItem {
+                id: "38349".to_owned(),
+                name: "Wagner (Mat. 1723011)".to_owned()
+            }]
+        );
+        assert!(chamados.search_people(9, "x".to_owned()).await.is_err());
     }
 }

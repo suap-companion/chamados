@@ -79,3 +79,80 @@ class NewTicketWizardTest {
         assertTrue(line.startsWith("120 serviços · lido em "))
     }
 }
+
+/** Os interessados recentes e a busca de pessoas do passo 2. */
+class RecentPeopleTest {
+    @Test
+    fun `os recentes ficam sem repetir o vinculo e limitados`() {
+        val ana = RecentPerson("1", "Ana")
+        val bia = RecentPerson("2", "Bia")
+        assertEquals(listOf(ana), withRecentPerson(emptyList(), ana))
+        assertEquals(listOf(RecentPerson("2", "Bia nova"), ana), withRecentPerson(listOf(bia, ana), RecentPerson("2", "Bia nova")))
+        val many = (1..5).map { RecentPerson("$it", "P$it") }
+        val after = withRecentPerson(many, RecentPerson("9", "Nova"))
+        assertEquals(MAX_RECENT_PEOPLE, after.size)
+        assertEquals("9", after.first().id)
+    }
+
+    @Test
+    fun `os recentes viram texto e voltam, ignorando linhas ruins`() {
+        val people = listOf(RecentPerson("38349", "Wagner (Mat. 1723011)"), RecentPerson("7", "Ana\tSouza"))
+        val text = encodeRecentPeople(people)
+        assertEquals(listOf(RecentPerson("38349", "Wagner (Mat. 1723011)"), RecentPerson("7", "Ana Souza")), parseRecentPeople(text))
+        assertTrue(parseRecentPeople("").isEmpty())
+        assertEquals(listOf(RecentPerson("5", "Bia")), parseRecentPeople("x\tSem número\n5\tBia\n6\t \n8"))
+    }
+
+    @Test
+    fun `a busca de pessoas pede ao menos dois caracteres`() {
+        assertFalse(canSearchPeople(""))
+        assertFalse(canSearchPeople(" a "))
+        assertTrue(canSearchPeople("an"))
+        assertTrue(canSearchPeople(" 1723011 "))
+    }
+}
+
+/** O passo 3: campos do serviço, contexto da IA e as mensagens. */
+class DescriptionStepTest {
+    private fun field(name: String, required: Boolean, value: String = "") =
+        uniffi.chamados_mobile.ServiceFieldItem(name = name, label = name, required = required, value = value)
+
+    @Test
+    fun `campo obrigatorio vazio impede de abrir, o valor padrao do formulario conta`() {
+        val fields = listOf(field("patrimonio", required = true), field("sala", required = false))
+        assertTrue(missingRequiredField(fields, emptyMap()))
+        assertTrue(missingRequiredField(fields, mapOf("patrimonio" to "  ")))
+        assertFalse(missingRequiredField(fields, mapOf("patrimonio" to "123")))
+        assertFalse(missingRequiredField(listOf(field("patrimonio", required = true, value = "9")), emptyMap()))
+        assertFalse(missingRequiredField(emptyList(), emptyMap()))
+        assertFalse(canContinue(WizardStep.Description, "400", emptyList(), null, "Texto", missingRequired = true))
+        assertTrue(canContinue(WizardStep.Description, "400", emptyList(), null, "Texto", missingRequired = false))
+    }
+
+    @Test
+    fun `so vao os campos com valor, o digitado vence o padrao`() {
+        val fields = listOf(field("patrimonio", true), field("sala", false, "Sala 1"), field("telefone", false))
+        val sent = fieldValues(fields, mapOf("patrimonio" to " 123 ", "sala" to ""))
+        assertEquals(listOf("patrimonio" to "123"), sent.map { it.name to it.value })
+    }
+
+    @Test
+    fun `o contexto da IA e um chamado que ainda nao existe`() {
+        val view = newTicketView("Infraestrutura para o Moodle", "Wagner", "  ")
+        assertEquals("Novo chamado", view.title)
+        assertEquals("Infraestrutura para o Moodle", view.heading)
+        assertEquals(listOf("Interessado" to "Wagner"), view.fields.map { it.label to it.value })
+        assertTrue(newTicketView(null, null, "Meu título").fields.isEmpty())
+        assertEquals("Meu título", newTicketView(null, null, "Meu título").title)
+    }
+
+    @Test
+    fun `a mensagem de falha depois de abrir traz o numero do chamado`() {
+        assertEquals("O chamado #31 foi aberto, mas: Assumir: recusado; Título local: sem disco", openedWithProblems("31", listOf("Assumir: recusado", "Título local: sem disco")))
+    }
+
+    @Test
+    fun `os rotulos do que fazer depois de abrir`() {
+        assertEquals(listOf("Só abrir", "Assumir", "Assumir e iniciar"), uniffi.chamados_mobile.AfterOpen.entries.map { it.label() })
+    }
+}

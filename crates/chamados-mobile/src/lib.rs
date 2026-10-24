@@ -329,12 +329,43 @@ pub struct ShareJob {
     pub text: Option<String>,
     /// Título do PDF gerado do texto (ao anexar).
     pub title: Option<String>,
+    /// Outros campos do formulário do serviço (ex.: `patrimonio`), ao abrir um chamado.
+    pub extra_fields: Vec<FieldValue>,
+    /// Enviar a cópia da abertura por e-mail aos interessados, ao abrir um chamado.
+    pub copy_email: bool,
+    /// O que fazer assim que o chamado abrir.
+    pub after_open: AfterOpen,
     /// Caminhos dos arquivos já copiados para a pasta do aplicativo.
     pub file_paths: Vec<String>,
     /// A descrição dos anexos (até 80 caracteres); sem ela, o SUAP mostra o nome do arquivo.
     pub attachment_description: Option<String>,
     /// `completed` de uma tentativa anterior, para refazer só o que falhou.
     pub resume_from: u32,
+}
+
+/// Um campo do formulário do serviço e o valor que a pessoa deu.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FieldValue {
+    pub name: String,
+    pub value: String,
+}
+
+/// O que fazer depois de abrir o chamado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum AfterOpen {
+    Nothing,
+    Assume,
+    AssumeAndStart,
+}
+
+impl From<AfterOpen> for chamados_app::apply::AfterOpen {
+    fn from(after: AfterOpen) -> Self {
+        match after {
+            AfterOpen::Nothing => Self::Nothing,
+            AfterOpen::Assume => Self::Assume,
+            AfterOpen::AssumeAndStart => Self::AssumeAndStart,
+        }
+    }
 }
 
 /// O resultado de um passo do compartilhamento.
@@ -611,6 +642,13 @@ impl Chamados {
                 campus: job.campus,
                 center: job.center,
                 interested: job.interested,
+                extra_fields: job
+                    .extra_fields
+                    .into_iter()
+                    .map(|field| (field.name, field.value))
+                    .collect(),
+                copy_email: job.copy_email,
+                then: job.after_open.into(),
             },
             ShareKind::Attach => ShareAction::Attach,
             ShareKind::Comment => ShareAction::Comment,
@@ -857,10 +895,21 @@ mod tests {
                 ticket: Some("5".to_owned()),
                 text: Some("texto".to_owned()),
                 title: None,
+                extra_fields: Vec::new(),
+                copy_email: false,
+                after_open: AfterOpen::Nothing,
                 file_paths: Vec::new(),
                 attachment_description: None,
                 resume_from: 0,
             }
+        }
+
+        #[test]
+        fn what_to_do_after_opening_maps_to_the_app_steps() {
+            use chamados_app::apply::AfterOpen as App;
+            assert_eq!(App::from(AfterOpen::Nothing), App::Nothing);
+            assert_eq!(App::from(AfterOpen::Assume), App::Assume);
+            assert_eq!(App::from(AfterOpen::AssumeAndStart), App::AssumeAndStart);
         }
 
         #[test]
@@ -1265,6 +1314,12 @@ mod tests {
             create.campus = Some("1".to_owned());
             create.center = Some("2".to_owned());
             create.interested = Some("1".to_owned());
+            create.extra_fields = vec![FieldValue {
+                name: "patrimonio".to_owned(),
+                value: "1".to_owned(),
+            }];
+            create.copy_email = true;
+            create.after_open = AfterOpen::AssumeAndStart;
             let refused = chamados.apply_share(create).await.unwrap();
             assert!(!refused.done);
             assert!(refused.steps[0].error.is_some());
