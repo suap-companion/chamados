@@ -79,3 +79,35 @@ class NewTicketWizardTest {
         assertTrue(line.startsWith("120 serviços · lido em "))
     }
 }
+
+/** Os interessados recentes e a busca de pessoas do passo 2. */
+class RecentPeopleTest {
+    @Test
+    fun `os recentes ficam sem repetir o vinculo e limitados`() {
+        val ana = RecentPerson("1", "Ana")
+        val bia = RecentPerson("2", "Bia")
+        assertEquals(listOf(ana), withRecentPerson(emptyList(), ana))
+        assertEquals(listOf(RecentPerson("2", "Bia nova"), ana), withRecentPerson(listOf(bia, ana), RecentPerson("2", "Bia nova")))
+        val many = (1..5).map { RecentPerson("$it", "P$it") }
+        val after = withRecentPerson(many, RecentPerson("9", "Nova"))
+        assertEquals(MAX_RECENT_PEOPLE, after.size)
+        assertEquals("9", after.first().id)
+    }
+
+    @Test
+    fun `os recentes viram texto e voltam, ignorando linhas ruins`() {
+        val people = listOf(RecentPerson("38349", "Wagner (Mat. 1723011)"), RecentPerson("7", "Ana\tSouza"))
+        val text = encodeRecentPeople(people)
+        assertEquals(listOf(RecentPerson("38349", "Wagner (Mat. 1723011)"), RecentPerson("7", "Ana Souza")), parseRecentPeople(text))
+        assertTrue(parseRecentPeople("").isEmpty())
+        assertEquals(listOf(RecentPerson("5", "Bia")), parseRecentPeople("x\tSem número\n5\tBia\n6\t \n8"))
+    }
+
+    @Test
+    fun `a busca de pessoas pede ao menos dois caracteres`() {
+        assertFalse(canSearchPeople(""))
+        assertFalse(canSearchPeople(" a "))
+        assertTrue(canSearchPeople("an"))
+        assertTrue(canSearchPeople(" 1723011 "))
+    }
+}

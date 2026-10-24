@@ -15,6 +15,7 @@ import uniffi.chamados_mobile.CatalogInfo
 import uniffi.chamados_mobile.Chamados
 import uniffi.chamados_mobile.ChamadosException
 import uniffi.chamados_mobile.ListQuery
+import uniffi.chamados_mobile.PersonItem
 import uniffi.chamados_mobile.PlaceItem
 import uniffi.chamados_mobile.ServiceItem
 import uniffi.chamados_mobile.ListView
@@ -165,6 +166,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** O passo de "Novo chamado" e o que já foi preenchido (voltar não perde nada). */
     var wizardStep by mutableStateOf(WizardStep.Service)
+        private set
+
+    /** O nome do interessado escolhido (só para mostrar), os recentes e a busca de pessoas. */
+    var interestedName by mutableStateOf<String?>(null)
+        private set
+    var recentPeople by mutableStateOf<List<RecentPerson>>(emptyList())
+        private set
+    var personQuery by mutableStateOf("")
+    var personResults by mutableStateOf<List<PersonItem>>(emptyList())
+        private set
+    var personBusy by mutableStateOf(false)
+        private set
+    var personMessage by mutableStateOf<String?>(null)
         private set
     var draft by mutableStateOf("")
 
@@ -947,6 +961,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         serviceResults = emptyList()
         profileServiceId = serviceId.trim()
         recents = CoreAccess.recentServices(getApplication())
+        recentPeople = CoreAccess.recentPeople(getApplication())
+        interestedName = recentPeople.firstOrNull { it.id == interested.trim() }?.name
+        personQuery = ""
+        personResults = emptyList()
+        personMessage = null
         screen = Screen.NewTicket
         if (validServiceId(serviceId)) chooseService(serviceId.trim()) else clearPlaces()
     }
@@ -1065,6 +1084,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         center = id
     }
 
+    /** Escolhe o interessado; `null` é "eu mesmo" (o SUAP usa a pessoa logada). */
+    fun chooseInterested(person: RecentPerson?) {
+        interested = person?.id ?: ""
+        interestedName = person?.name
+    }
+
+    /** Busca pessoas por matrícula ou nome no SUAP, com a busca do formulário do serviço escolhido. */
+    fun searchPeople() {
+        val service = serviceId.trim().toULongOrNull()
+        if (personBusy || service == null || !canSearchPeople(personQuery)) return
+        viewModelScope.launch {
+            personBusy = true
+            personMessage = null
+            try {
+                val found = open().searchPeople(service, personQuery.trim())
+                personResults = found
+                if (found.isEmpty()) personMessage = "Ninguém encontrado para \"${personQuery.trim()}\"."
+            } catch (error: Throwable) {
+                personMessage = error.readable()
+            } finally {
+                personBusy = false
+            }
+        }
+    }
+
     /** Abre um chamado novo (o serviço é o número dele no SUAP) e vai para o detalhe. */
     fun createTicket(text: String) {
         val service = serviceId.trim().toLongOrNull()
@@ -1089,6 +1133,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     CoreAccess.saveServiceId(getApplication(), service.toString())
                     CoreAccess.saveRecentServices(getApplication(), withRecent(CoreAccess.recentServices(getApplication()), service.toString()))
                     CoreAccess.saveInterested(getApplication(), interested.trim())
+                    interestedName?.takeIf { interested.isNotBlank() }?.let { name ->
+                        CoreAccess.saveRecentPeople(getApplication(), withRecentPerson(CoreAccess.recentPeople(getApplication()), RecentPerson(interested.trim(), name)))
+                    }
                     clearPicked()
                     openDetail(created)
                 } else {

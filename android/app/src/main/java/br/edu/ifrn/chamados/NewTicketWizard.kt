@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -33,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import java.text.DateFormat
 import java.util.Date
@@ -65,6 +68,28 @@ fun defaultPlace(places: List<PlaceItem>): PlaceItem? = places.firstOrNull { it.
  * vale sozinho e com nenhum não há como abrir.
  */
 fun centerRequired(centers: List<PlaceItem>): Boolean = centers.size > 1
+
+/** Uma pessoa escolhida como interessado: o número do vínculo e o nome para mostrar. */
+data class RecentPerson(val id: String, val name: String)
+
+/** Quantas pessoas se lembram como recentes. */
+const val MAX_RECENT_PEOPLE = 5
+
+/** Põe `person` no começo dos recentes, sem repetir o vínculo, até [MAX_RECENT_PEOPLE]. */
+fun withRecentPerson(people: List<RecentPerson>, person: RecentPerson): List<RecentPerson> =
+    (listOf(person) + people.filter { it.id != person.id }).take(MAX_RECENT_PEOPLE)
+
+/** Os recentes guardados em texto, uma pessoa por linha ("vínculo<TAB>nome"); ignora linhas sem número ou sem nome. */
+fun parseRecentPeople(text: String): List<RecentPerson> = text.lines().mapNotNull { line ->
+    val (id, name) = line.split('\t', limit = 2).let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
+    if (id.isNotEmpty() && id.all(Char::isDigit) && name.isNotBlank()) RecentPerson(id, name.trim()) else null
+}
+
+fun encodeRecentPeople(people: List<RecentPerson>): String =
+    people.joinToString("\n") { "${it.id}\t${it.name.replace('\t', ' ').replace('\n', ' ')}" }
+
+/** A busca de pessoas só começa com duas letras ou números, para não listar o SUAP inteiro. */
+fun canSearchPeople(query: String): Boolean = query.trim().length >= 2
 
 /** O texto do número do serviço é um número válido (o SUAP usa inteiros positivos). */
 fun validServiceId(text: String): Boolean = text.trim().toLongOrNull()?.let { it > 0 } == true
@@ -200,13 +225,39 @@ private fun ServiceStep(model: MainViewModel) {
 
 @Composable
 private fun InterestedStep(model: MainViewModel) {
+    val self = model.interested.isBlank()
+    ServiceRow("Eu mesmo", model.user?.name ?: "A pessoa logada", selected = self) { model.chooseInterested(null) }
+    if (model.recentPeople.isNotEmpty()) {
+        Text("Recentes", style = MaterialTheme.typography.titleSmall)
+        model.recentPeople.forEach { person ->
+            ServiceRow(person.name, "vínculo ${person.id}", selected = model.interested.trim() == person.id) {
+                model.chooseInterested(person)
+            }
+        }
+    }
+    Text("Buscar pessoa", style = MaterialTheme.typography.titleSmall)
     OutlinedTextField(
-        value = model.interested,
-        onValueChange = { model.interested = it },
-        label = { Text("Interessado (vínculo; deixe vazio se o serviço não pedir)") },
+        value = model.personQuery,
+        onValueChange = { model.personQuery = it },
+        label = { Text("Matrícula ou nome") },
         singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { model.searchPeople() }),
         modifier = Modifier.fillMaxWidth(),
     )
+    OutlinedButton(onClick = model::searchPeople, enabled = canSearchPeople(model.personQuery) && !model.personBusy, modifier = Modifier.fillMaxWidth()) {
+        Text(if (model.personBusy) "Buscando…" else "Buscar")
+    }
+    model.personMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium) }
+    model.personResults.forEach { person ->
+        ServiceRow(person.name, "vínculo ${person.id}", selected = model.interested.trim() == person.id) {
+            model.chooseInterested(RecentPerson(person.id, person.name))
+        }
+    }
+    val chosen = model.interested.trim()
+    if (chosen.isNotEmpty() && model.recentPeople.none { it.id == chosen } && model.personResults.none { it.id == chosen }) {
+        Text("Selecionado: ${model.interestedName ?: "vínculo $chosen"}", style = MaterialTheme.typography.labelLarge)
+    }
 }
 
 @Composable
