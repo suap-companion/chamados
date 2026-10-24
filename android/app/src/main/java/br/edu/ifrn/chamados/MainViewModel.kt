@@ -11,11 +11,14 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.chamados_mobile.AfterOpen
 import uniffi.chamados_mobile.CatalogInfo
 import uniffi.chamados_mobile.Chamados
 import uniffi.chamados_mobile.ChamadosException
 import uniffi.chamados_mobile.ListQuery
+import uniffi.chamados_mobile.PersonItem
 import uniffi.chamados_mobile.PlaceItem
+import uniffi.chamados_mobile.ServiceFieldItem
 import uniffi.chamados_mobile.ServiceItem
 import uniffi.chamados_mobile.ListView
 import uniffi.chamados_mobile.Queue
@@ -166,7 +169,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** O passo de "Novo chamado" e o que já foi preenchido (voltar não perde nada). */
     var wizardStep by mutableStateOf(WizardStep.Service)
         private set
+
+    /** O nome do interessado escolhido (só para mostrar), os recentes e a busca de pessoas. */
+    var interestedName by mutableStateOf<String?>(null)
+        private set
+    var recentPeople by mutableStateOf<List<RecentPerson>>(emptyList())
+        private set
+    var personQuery by mutableStateOf("")
+    var personResults by mutableStateOf<List<PersonItem>>(emptyList())
+        private set
+    var personBusy by mutableStateOf(false)
+        private set
+    var personMessage by mutableStateOf<String?>(null)
+        private set
     var draft by mutableStateOf("")
+
+    /** O título local do chamado novo, os campos a mais do serviço (e o que a pessoa preencheu), a cópia por e-mail e o que fazer depois. */
+    var title by mutableStateOf("")
+    var serviceFields by mutableStateOf<List<ServiceFieldItem>>(emptyList())
+        private set
+    var fieldValues by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
+    var copyEmail by mutableStateOf(true)
+    var afterOpen by mutableStateOf(AfterOpen.NOTHING)
 
     /** O serviço padrão do perfil (o último usado) e os recentes. */
     var profileServiceId by mutableStateOf("")
@@ -588,7 +613,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 val kind = if (action == BatchAction.Comment) ShareKind.COMMENT else ShareKind.INTERNAL_NOTE
                                 val job = ShareJob(
                                     kind = kind, serviceId = null, campus = null, center = null, interested = null,
-                                    ticket = id, text = text, title = null, filePaths = emptyList(), attachmentDescription = null, resumeFrom = 0u,
+                                    ticket = id, text = text, title = null, extraFields = emptyList(), copyEmail = false, afterOpen = AfterOpen.NOTHING, filePaths = emptyList(), attachmentDescription = null, resumeFrom = 0u,
                                 )
                                 val outcome = core.applyShare(job)
                                 if (!outcome.done) failures += id to describe(outcome.steps)
@@ -843,7 +868,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val job = ShareJob(
                             kind = action.kind!!, serviceId = null, campus = null, center = null, interested = null,
                             ticket = id, text = clean, title = null,
-                            filePaths = picked.map { it.path }, attachmentDescription = attachmentDescription.trim().ifEmpty { null }, resumeFrom = 0u,
+                            extraFields = emptyList(), copyEmail = false, afterOpen = uniffi.chamados_mobile.AfterOpen.NOTHING, filePaths = picked.map { it.path }, attachmentDescription = attachmentDescription.trim().ifEmpty { null }, resumeFrom = 0u,
                         )
                         val outcome = core.applyShare(job)
                         if (!outcome.done) failure = describe(outcome.steps)
@@ -942,17 +967,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         actionMessage = null
         clearPicked()
         draft = ""
-        wizardStep = WizardStep.Service
+        title = ""
+        copyEmail = true
+        afterOpen = AfterOpen.NOTHING
+        wizardStep = startStep(
+            CoreAccess.newTicketShortcut(getApplication()), serviceId, CoreAccess.hasInterestedDefault(getApplication()),
+        )
         serviceQuery = ""
         serviceResults = emptyList()
         profileServiceId = serviceId.trim()
         recents = CoreAccess.recentServices(getApplication())
+        recentPeople = CoreAccess.recentPeople(getApplication())
+        interestedName = recentPeople.firstOrNull { it.id == interested.trim() }?.name
+        personQuery = ""
+        personResults = emptyList()
+        personMessage = null
         screen = Screen.NewTicket
         if (validServiceId(serviceId)) chooseService(serviceId.trim()) else clearPlaces()
     }
 
     /** O nome do serviço, se o catálogo guardado o conhece. */
     fun serviceName(id: String): String? = serviceNames[id]
+
+    fun setFieldValue(name: String, value: String) {
+        fieldValues = fieldValues + (name to value)
+    }
+
+    fun goToStep(step: WizardStep) {
+        wizardStep = step
+    }
 
     fun wizardNext() {
         wizardStep = WizardStep.entries.getOrElse(wizardStep.ordinal + 1) { wizardStep }
@@ -970,6 +1013,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         campus = null
         center = null
         placesMessage = null
+        serviceFields = emptyList()
+        fieldValues = emptyMap()
     }
 
     /** Lê o que há guardado do catálogo e os nomes dos serviços padrão e recentes. */
@@ -1025,6 +1070,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val number = id.trim().toULongOrNull() ?: return
         val generation = placesGeneration
         viewModelScope.launch {
+            runCatching { open().serviceFields(number) }.onSuccess { if (generation == placesGeneration) serviceFields = it }
+        }
+        viewModelScope.launch {
             try {
                 val found = open().serviceCampuses(number)
                 if (generation != placesGeneration) return@launch
@@ -1065,6 +1113,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         center = id
     }
 
+    /** Escolhe o interessado; `null` é "eu mesmo" (o SUAP usa a pessoa logada). */
+    fun chooseInterested(person: RecentPerson?) {
+        interested = person?.id ?: ""
+        interestedName = person?.name
+    }
+
+    /** Busca pessoas por matrícula ou nome no SUAP, com a busca do formulário do serviço escolhido. */
+    fun searchPeople() {
+        val service = serviceId.trim().toULongOrNull()
+        if (personBusy || service == null || !canSearchPeople(personQuery)) return
+        viewModelScope.launch {
+            personBusy = true
+            personMessage = null
+            try {
+                val found = open().searchPeople(service, personQuery.trim())
+                personResults = found
+                if (found.isEmpty()) personMessage = "Ninguém encontrado para \"${personQuery.trim()}\"."
+            } catch (error: Throwable) {
+                personMessage = error.readable()
+            } finally {
+                personBusy = false
+            }
+        }
+    }
+
     /** Abre um chamado novo (o serviço é o número dele no SUAP) e vai para o detalhe. */
     fun createTicket(text: String) {
         val service = serviceId.trim().toLongOrNull()
@@ -1081,16 +1154,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     kind = ShareKind.CREATE, serviceId = service.toULong(), campus = campus, center = center,
                     interested = interested.trim().ifEmpty { null },
                     ticket = null, text = text.trim(), title = null,
+                    extraFields = fieldValues(serviceFields, fieldValues), copyEmail = copyEmail, afterOpen = afterOpen,
                     filePaths = picked.map { it.path }, attachmentDescription = null, resumeFrom = 0u,
                 )
                 val outcome = open().applyShare(job)
                 val created = outcome.ticket
-                if (outcome.done && created != null) {
+                if (created != null) {
                     CoreAccess.saveServiceId(getApplication(), service.toString())
                     CoreAccess.saveRecentServices(getApplication(), withRecent(CoreAccess.recentServices(getApplication()), service.toString()))
                     CoreAccess.saveInterested(getApplication(), interested.trim())
+                    interestedName?.takeIf { interested.isNotBlank() }?.let { name ->
+                        CoreAccess.saveRecentPeople(getApplication(), withRecentPerson(CoreAccess.recentPeople(getApplication()), RecentPerson(interested.trim(), name)))
+                    }
                     clearPicked()
+                    val titleProblem = title.trim().takeIf { it.isNotEmpty() }?.let { text ->
+                        runCatching { open().setTitle(created, text) }.exceptionOrNull()?.readable()
+                    }
+                    if (titleProblem == null) loadTitles()
                     openDetail(created)
+                    val problems = listOfNotNull(
+                        if (outcome.done) null else describe(outcome.steps),
+                        titleProblem?.let { "Título local: $it" },
+                    )
+                    if (problems.isNotEmpty()) {
+                        actionIsError = true
+                        actionMessage = openedWithProblems(created, problems)
+                    }
                 } else {
                     actionIsError = true
                     actionMessage = describe(outcome.steps)

@@ -10,12 +10,12 @@ use scraper::{node::Node, ElementRef, Html};
 use serde::Deserialize;
 use url::form_urlencoded::Serializer;
 
-use suap_core::FormFile;
+use suap_core::{FormFile, SuapClient};
 
 use crate::{
     flat_text, parse_form_by_action, selector, set_field, validate_attachments, Attachment,
     SuapTicketSource, TicketError, ATTACHMENT_DESCRIPTION_MAX, CAMPUS_PATH_PREFIX,
-    CENTERS_PATH_PREFIX, TICKET_PATH_PREFIX,
+    CENTERS_PATH_PREFIX, OPEN_PATH_PREFIX, TICKET_PATH_PREFIX,
 };
 
 const ATTACH_PATH_PREFIX: &str = "/centralservicos/adicionar_anexo/";
@@ -431,15 +431,7 @@ impl SuapTicketSource<'_> {
             .ok_or_else(|| TicketError::Source("the form has no person search".to_owned()))?;
         let mut chosen = Vec::new();
         for wanted in people {
-            let query = Serializer::new(String::new())
-                .append_pair("q", wanted.trim())
-                .append_pair("control", control)
-                .finish();
-            let reply = self
-                .client
-                .fetch_page(&format!("{PEOPLE_SEARCH_PATH}?{query}"))
-                .await?;
-            let found = parse_people(&reply)?;
+            let found = find_people(self.client, control, wanted).await?;
             chosen.push(pick_choice(&found, &found_value(&found, wanted), "person")?.clone());
         }
         fields.retain(|(name, _)| name != "outros_interessados");
@@ -490,6 +482,37 @@ impl SuapTicketSource<'_> {
         }
         Ok(())
     }
+}
+
+/// Runs SUAP's person search (by registration number or name) with the page's search token.
+async fn find_people(
+    client: &SuapClient,
+    control: &str,
+    wanted: &str,
+) -> Result<Vec<Choice>, TicketError> {
+    let query = Serializer::new(String::new())
+        .append_pair("q", wanted.trim())
+        .append_pair("control", control)
+        .finish();
+    let reply = client
+        .fetch_page(&format!("{PEOPLE_SEARCH_PATH}?{query}"))
+        .await?;
+    parse_people(&reply)
+}
+
+/// Searches people by registration number or name with the person search of the "open ticket" form
+/// of `service` (the one used to choose who the ticket is for). Each result is `(link id, name)`.
+pub async fn search_people(
+    client: &SuapClient,
+    service: u64,
+    wanted: &str,
+) -> Result<Vec<Choice>, TicketError> {
+    let html = client
+        .fetch_page(&format!("{OPEN_PATH_PREFIX}{service}/"))
+        .await?;
+    let control = search_control(&html)
+        .ok_or_else(|| TicketError::Source("the form has no person search".to_owned()))?;
+    find_people(client, control, wanted).await
 }
 
 /// What to pick among the people SUAP found for `wanted`: when exactly one came back it is the

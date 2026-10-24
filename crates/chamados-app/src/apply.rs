@@ -8,6 +8,18 @@ use chamados_core::{
 
 use crate::{pdf::text_to_pdf, AppError};
 
+/// O que fazer depois de abrir o chamado (como `--assume` e `--start` do CLI).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AfterOpen {
+    /// Só abrir.
+    #[default]
+    Nothing,
+    /// Assumir o chamado.
+    Assume,
+    /// Assumir e colocar em atendimento.
+    AssumeAndStart,
+}
+
 /// O que fazer com o que foi compartilhado.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShareAction {
@@ -18,6 +30,12 @@ pub enum ShareAction {
         center: Option<String>,
         /// Interessado (id de vínculo do SUAP); alguns serviços o exigem.
         interested: Option<String>,
+        /// Outros campos do formulário do serviço (ex.: `patrimonio`), como o `--field` do CLI.
+        extra_fields: Vec<(String, String)>,
+        /// Enviar a cópia da abertura por e-mail aos interessados.
+        copy_email: bool,
+        /// O que fazer assim que o chamado abrir.
+        then: AfterOpen,
     },
     /// Anexa ao chamado os arquivos e, se houver texto, o texto como PDF.
     Attach,
@@ -74,6 +92,8 @@ impl ShareReport {
 
 enum Step {
     Open(Box<NewTicket>),
+    Assume,
+    Start,
     Attach(Attachment, Option<String>),
     Send(Message, String),
     Suspend(String),
@@ -86,6 +106,8 @@ impl Step {
     fn label(&self) -> String {
         match self {
             Self::Open(_) => "Abrir o chamado".to_owned(),
+            Self::Assume => "Assumir o chamado".to_owned(),
+            Self::Start => "Iniciar o atendimento".to_owned(),
             Self::Attach(file, _) => format!("Anexar {}", file.file_name),
             Self::Send(Message::Comment, _) => "Adicionar o comentário".to_owned(),
             Self::Send(Message::InternalNote, _) => "Adicionar a nota interna".to_owned(),
@@ -120,6 +142,9 @@ fn plan(request: &ShareRequest) -> Result<Vec<Step>, AppError> {
         campus,
         center,
         interested,
+        extra_fields,
+        copy_email,
+        then,
     } = &request.action
     {
         let description = text.ok_or_else(|| refuse("falta a descrição do chamado"))?;
@@ -135,10 +160,17 @@ fn plan(request: &ShareRequest) -> Result<Vec<Step>, AppError> {
             campus: campus.clone(),
             center: center.clone(),
             interested: interested.clone(),
+            extra_fields: extra_fields.clone(),
+            copy_email: *copy_email,
             attachments: files,
-            ..NewTicket::default()
         };
-        return Ok(vec![Step::Open(Box::new(new))]);
+        let mut steps = vec![Step::Open(Box::new(new))];
+        match then {
+            AfterOpen::Nothing => {}
+            AfterOpen::Assume => steps.push(Step::Assume),
+            AfterOpen::AssumeAndStart => steps.extend([Step::Assume, Step::Start]),
+        }
+        return Ok(steps);
     }
 
     if ticket.is_none() {
@@ -185,6 +217,8 @@ async fn run(
 ) -> Result<Option<String>, AppError> {
     match step {
         Step::Open(new) => return Ok(Some(source.open_ticket(new).await?)),
+        Step::Assume => source.assume_ticket(ticket).await?,
+        Step::Start => source.start_service(ticket).await?,
         Step::Attach(file, description) => {
             source
                 .attach_file(ticket, file, description.as_deref())

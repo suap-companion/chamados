@@ -13,9 +13,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
@@ -33,10 +37,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import java.text.DateFormat
 import java.util.Date
+import uniffi.chamados_mobile.AfterOpen
+import uniffi.chamados_mobile.DraftKind
+import uniffi.chamados_mobile.FieldValue
 import uniffi.chamados_mobile.PlaceItem
+import uniffi.chamados_mobile.ServiceFieldItem
+import uniffi.chamados_mobile.TicketField
+import uniffi.chamados_mobile.TicketView
 import uniffi.chamados_mobile.ServiceItem
 
 /** Os passos de "Novo chamado". */
@@ -47,6 +58,16 @@ fun stepTitle(step: WizardStep): String = "Passo ${step.ordinal + 1} de ${Wizard
 
 /** A fração da barra de progresso: o passo atual conta como feito. */
 fun stepProgress(step: WizardStep): Float = (step.ordinal + 1).toFloat() / WizardStep.entries.size
+
+/**
+ * Onde "Novo chamado" começa: com o atalho ligado e os dois padrões (serviço e interessado) definidos, direto
+ * no passo 3; senão, no passo que falta (o serviço primeiro); com o atalho desligado, sempre no passo 1.
+ */
+fun startStep(shortcut: Boolean, serviceId: String, hasInterestedDefault: Boolean): WizardStep = when {
+    !shortcut || !validServiceId(serviceId) -> WizardStep.Service
+    !hasInterestedDefault -> WizardStep.Interested
+    else -> WizardStep.Description
+}
 
 /** Quantos serviços usados por último se lembram. */
 const val MAX_RECENTS = 5
@@ -66,16 +87,75 @@ fun defaultPlace(places: List<PlaceItem>): PlaceItem? = places.firstOrNull { it.
  */
 fun centerRequired(centers: List<PlaceItem>): Boolean = centers.size > 1
 
+/** Uma pessoa escolhida como interessado: o número do vínculo e o nome para mostrar. */
+data class RecentPerson(val id: String, val name: String)
+
+/** Quantas pessoas se lembram como recentes. */
+const val MAX_RECENT_PEOPLE = 5
+
+/** Põe `person` no começo dos recentes, sem repetir o vínculo, até [MAX_RECENT_PEOPLE]. */
+fun withRecentPerson(people: List<RecentPerson>, person: RecentPerson): List<RecentPerson> =
+    (listOf(person) + people.filter { it.id != person.id }).take(MAX_RECENT_PEOPLE)
+
+/** Os recentes guardados em texto, uma pessoa por linha ("vínculo<TAB>nome"); ignora linhas sem número ou sem nome. */
+fun parseRecentPeople(text: String): List<RecentPerson> = text.lines().mapNotNull { line ->
+    val (id, name) = line.split('\t', limit = 2).let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
+    if (id.isNotEmpty() && id.all(Char::isDigit) && name.isNotBlank()) RecentPerson(id, name.trim()) else null
+}
+
+fun encodeRecentPeople(people: List<RecentPerson>): String =
+    people.joinToString("\n") { "${it.id}\t${it.name.replace('\t', ' ').replace('\n', ' ')}" }
+
+/** A busca de pessoas só começa com duas letras ou números, para não listar o SUAP inteiro. */
+fun canSearchPeople(query: String): Boolean = query.trim().length >= 2
+
 /** O texto do número do serviço é um número válido (o SUAP usa inteiros positivos). */
 fun validServiceId(text: String): Boolean = text.trim().toLongOrNull()?.let { it > 0 } == true
 
 /** Pode ir ao passo seguinte? Serviço: um número válido e o centro escolhido quando há vários. */
-fun canContinue(step: WizardStep, serviceId: String, centers: List<PlaceItem>, center: String?, description: String): Boolean =
+fun canContinue(
+    step: WizardStep,
+    serviceId: String,
+    centers: List<PlaceItem>,
+    center: String?,
+    description: String,
+    missingRequired: Boolean = false,
+): Boolean =
     when (step) {
         WizardStep.Service -> validServiceId(serviceId) && (!centerRequired(centers) || center != null)
         WizardStep.Interested -> true
-        WizardStep.Description -> description.isNotBlank()
+        WizardStep.Description ->
+            description.isNotBlank() && !missingRequired && (!centerRequired(centers) || center != null)
     }
+
+/** O limite do título local (o mesmo do núcleo). */
+const val MAX_TITLE = 120
+
+/** Algum campo obrigatório do serviço está sem valor? */
+fun missingRequiredField(fields: List<ServiceFieldItem>, values: Map<String, String>): Boolean =
+    fields.any { it.required && (values[it.name] ?: it.value).isBlank() }
+
+/** Os campos a mais com valor (o preenchido, ou o que o formulário já oferecia), para ir no `ShareJob`. */
+fun fieldValues(fields: List<ServiceFieldItem>, values: Map<String, String>): List<FieldValue> =
+    fields.mapNotNull { field -> (values[field.name] ?: field.value).trim().takeIf { it.isNotEmpty() }?.let { FieldValue(field.name, it) } }
+
+/** O chamado que ainda não existe, só para dar contexto à IA que escreve a descrição (serviço e interessado). */
+fun newTicketView(service: String?, interested: String?, title: String?): TicketView = TicketView(
+    id = "", title = title?.takeIf { it.isNotBlank() } ?: "Novo chamado", heading = service, statuses = emptyList(),
+    fields = listOfNotNull(interested?.let { TicketField("Interessado", it) }), thread = emptyList(), notes = emptyList(),
+    canSeeNotes = false, attachments = emptyList(), photo = null, url = "",
+)
+
+/** O chamado foi aberto, mas algo depois falhou: a mensagem traz o número para a pessoa achá-lo. */
+fun openedWithProblems(ticket: String, problems: List<String>): String =
+    "O chamado #$ticket foi aberto, mas: " + problems.joinToString("; ")
+
+/** Os rótulos do que fazer depois de abrir. */
+fun AfterOpen.label(): String = when (this) {
+    AfterOpen.NOTHING -> "Só abrir"
+    AfterOpen.ASSUME -> "Assumir"
+    AfterOpen.ASSUME_AND_START -> "Assumir e iniciar"
+}
 
 /** Quando o catálogo foi lido, para a pessoa saber se está velho. */
 fun catalogLine(info: uniffi.chamados_mobile.CatalogInfo?): String {
@@ -91,7 +171,7 @@ fun catalogLine(info: uniffi.chamados_mobile.CatalogInfo?): String {
 fun NewTicketScreen(model: MainViewModel) {
     BackHandler { model.wizardBack() }
     val step = model.wizardStep
-    val ready = canContinue(step, model.serviceId, model.centers, model.center, model.draft)
+    val ready = canContinue(step, model.serviceId, model.centers, model.center, model.draft, missingRequiredField(model.serviceFields, model.fieldValues))
     Scaffold(
         topBar = { GovBrHeader("Novo chamado", onBack = model::wizardBack) },
         bottomBar = {
@@ -200,32 +280,97 @@ private fun ServiceStep(model: MainViewModel) {
 
 @Composable
 private fun InterestedStep(model: MainViewModel) {
+    val self = model.interested.isBlank()
+    ServiceRow("Eu mesmo", model.user?.name ?: "A pessoa logada", selected = self) { model.chooseInterested(null) }
+    if (model.recentPeople.isNotEmpty()) {
+        Text("Recentes", style = MaterialTheme.typography.titleSmall)
+        model.recentPeople.forEach { person ->
+            ServiceRow(person.name, "vínculo ${person.id}", selected = model.interested.trim() == person.id) {
+                model.chooseInterested(person)
+            }
+        }
+    }
+    Text("Buscar pessoa", style = MaterialTheme.typography.titleSmall)
     OutlinedTextField(
-        value = model.interested,
-        onValueChange = { model.interested = it },
-        label = { Text("Interessado (vínculo; deixe vazio se o serviço não pedir)") },
+        value = model.personQuery,
+        onValueChange = { model.personQuery = it },
+        label = { Text("Matrícula ou nome") },
         singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { model.searchPeople() }),
         modifier = Modifier.fillMaxWidth(),
     )
+    OutlinedButton(onClick = model::searchPeople, enabled = canSearchPeople(model.personQuery) && !model.personBusy, modifier = Modifier.fillMaxWidth()) {
+        Text(if (model.personBusy) "Buscando…" else "Buscar")
+    }
+    model.personMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium) }
+    model.personResults.forEach { person ->
+        ServiceRow(person.name, "vínculo ${person.id}", selected = model.interested.trim() == person.id) {
+            model.chooseInterested(RecentPerson(person.id, person.name))
+        }
+    }
+    val chosen = model.interested.trim()
+    if (chosen.isNotEmpty() && model.recentPeople.none { it.id == chosen } && model.personResults.none { it.id == chosen }) {
+        Text("Selecionado: ${model.interestedName ?: "vínculo $chosen"}", style = MaterialTheme.typography.labelLarge)
+    }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DescriptionStep(model: MainViewModel) {
-    var text by remember { mutableStateOf(model.draft) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) model.onPicked(uris, 3u)
     }
+    // O serviço e o interessado escolhidos: tocar volta ao passo.
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AssistChip(onClick = { model.goToStep(WizardStep.Service) }, label = { Text(model.serviceName(model.serviceId.trim()) ?: "Serviço #${model.serviceId.trim()}") })
+        AssistChip(onClick = { model.goToStep(WizardStep.Interested) }, label = { Text(model.interestedName ?: "Eu mesmo") })
+    }
+    if (centerRequired(model.centers) && model.center == null) {
+        Text("Falta escolher o centro de atendimento: toque no serviço acima.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
+    }
     OutlinedTextField(
-        value = text,
-        onValueChange = { text = it; model.draft = it },
+        value = model.title,
+        onValueChange = { model.title = it.take(MAX_TITLE) },
+        label = { Text("Título local (opcional, só neste aparelho)") },
+        supportingText = { Text("${model.title.length}/$MAX_TITLE") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    OutlinedTextField(
+        value = model.draft,
+        onValueChange = { model.draft = it },
         label = { Text("Descrição") },
         minLines = 5,
         modifier = Modifier.fillMaxWidth(),
     )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { picker.launch("*/*") }) { Text("Anexar (até 3)") }
-        if (model.picked.isNotEmpty()) TextButton(onClick = model::clearPicked) { Text("Limpar") }
+    val view = remember(model.serviceId, model.interestedName, model.title) {
+        newTicketView(model.serviceName(model.serviceId.trim()), model.interestedName, model.title)
     }
+    AssistButton(DraftKind.DESCRIBE, view, model.title.ifBlank { null }, model.draft) { model.draft = it }
+    model.serviceFields.forEach { field ->
+        OutlinedTextField(
+            value = model.fieldValues[field.name] ?: field.value,
+            onValueChange = { model.setFieldValue(field.name, it) },
+            label = { Text(if (field.required) "${field.label} *" else field.label) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    Text("Anexos (até 3)", style = MaterialTheme.typography.titleSmall)
+    PhotoButton(model)
+    OutlinedButton(onClick = { picker.launch("*/*") }, modifier = Modifier.fillMaxWidth()) { Text("Arquivo") }
     model.picked.forEach { Text("• ${it.name}") }
+    if (model.picked.isNotEmpty()) TextButton(onClick = model::clearPicked) { Text("Limpar anexos") }
     model.pickNote?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = model.copyEmail, onCheckedChange = { model.copyEmail = it })
+        Text("Enviar cópia por e-mail aos interessados")
+    }
+    Text("Depois de abrir", style = MaterialTheme.typography.titleSmall)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AfterOpen.entries.forEach { option ->
+            FilterChip(selected = model.afterOpen == option, onClick = { model.afterOpen = option }, label = { Text(option.label()) })
+        }
+    }
 }

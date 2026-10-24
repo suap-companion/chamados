@@ -166,7 +166,7 @@ class ShareViewModel(application: Application) : AndroidViewModel(application) {
                     ticket = ticket.trim().takeIf { option.needsTicket },
                     text = text.trim().ifEmpty { null },
                     title = title,
-                    filePaths = files.map { it.path },
+                    extraFields = emptyList(), copyEmail = false, afterOpen = uniffi.chamados_mobile.AfterOpen.NOTHING, filePaths = files.map { it.path },
                     attachmentDescription = null,
                     resumeFrom = (outcome?.completed ?: 0u),
                 )
