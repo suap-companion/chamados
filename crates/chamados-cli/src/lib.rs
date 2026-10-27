@@ -6538,10 +6538,13 @@ segredo-que-vai-no-qr
         );
         let sent = String::from_utf8_lossy(&put.body).into_owned();
         assert!(sent.starts_with("CSYN1"));
-        for secret in ["Titulo secreto", "ana-secreta", "segredo-que-nao-aparece"] {
+        for (case, secret) in ["Titulo secreto", "ana-secreta", "segredo-que-nao-aparece"]
+            .into_iter()
+            .enumerate()
+        {
             assert!(
                 !sent.contains(secret) && !format!("{:?}", put.headers).contains(secret),
-                "{secret}"
+                "o segredo {case} vazou"
             );
         }
     }

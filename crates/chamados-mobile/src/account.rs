@@ -292,7 +292,7 @@ mod tests {
         assert_eq!(fetch_image(&at("/missing.jpg")).await, None);
         let closed = {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            Url::parse(&format!("http://{}/x.jpg", listener.local_addr().unwrap())).unwrap()
+            Url::parse(&format!("https://{}/x.jpg", listener.local_addr().unwrap())).unwrap()
         };
         assert_eq!(fetch_image(&closed).await, None);
     }
