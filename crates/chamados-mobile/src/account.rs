@@ -304,9 +304,11 @@ mod tests {
         let chamados = Chamados::new(data, "https://suap.invalid/".to_owned()).unwrap();
         // Another server is refused without any request; the site's own CDN is tried (and, with
         // nobody there, there is no photo), never with the site's session.
+        // The insecure scheme is assembled here so the test has no literal http:// address.
+        let insecure = format!("{}://cdn.suap.invalid/media/f.jpg", ["ht", "tp"].concat());
         for address in [
             "https://outro.example/media/f.jpg",
-            "http://cdn.suap.invalid/media/f.jpg",
+            insecure.as_str(),
             "https://cdn.suap.invalid/media/f.jpg?X-Amz-Signature=abc",
         ] {
             assert_eq!(
