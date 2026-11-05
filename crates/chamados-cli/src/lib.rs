@@ -98,6 +98,9 @@ enum Command {
         /// Imprime JSON (para scripts) em vez de texto.
         #[arg(long)]
         json: bool,
+        /// Mostra só as notas internas (visíveis só à equipe de atendimento).
+        #[arg(long, conflicts_with = "json")]
+        notas: bool,
     },
     /// Acompanha chamados e avisa quando algo muda (situação, chamado novo, saída da lista, mensagens).
     Watch(WatchArgs),
@@ -925,7 +928,7 @@ fn dispatch(
         Some(Command::SessionStatus) => session_status(paths, out),
         Some(Command::Login { username }) => login(paths, username, password, out),
         Some(Command::List(args)) => list(paths, *args, &cli.fuso, style, out),
-        Some(Command::Show { id, json }) => show(paths, id, json, &cli.fuso, out),
+        Some(Command::Show { id, json, notas }) => show(paths, id, (json, notas), &cli.fuso, out),
         Some(Command::Watch(args)) => watch(paths, &args, out),
         Some(Command::Open(args)) => open(paths, args, input, out),
         Some(Command::Comment(args)) => send_message(paths, args, Message::Comment, input, out),
@@ -1399,7 +1402,7 @@ fn list(
 fn show(
     paths: &AppPaths,
     id: u64,
-    json: bool,
+    (json, only_notes): (bool, bool),
     fuso: &str,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
@@ -1436,6 +1439,10 @@ fn show(
     if json {
         let details = render::details_json(&details, local_title);
         writeln!(out, "{details}")?;
+        return Ok(());
+    }
+    if only_notes {
+        print_notes(&details, out)?;
         return Ok(());
     }
     print_details(&details, local_title, out)?;
@@ -2806,8 +2813,32 @@ fn print_details(
         let text = indent_continuation(&entry.text, "      ");
         writeln!(out, "  {}  {text}", entry.date)?;
     }
+    if details.notes.is_some() {
+        writeln!(out)?;
+        print_notes(details, out)?;
+    }
     Ok(())
 }
+
+/// The internal notes, with date, author and text; people outside the service team have none.
+fn print_notes(details: &TicketDetails, out: &mut dyn Write) -> std::io::Result<()> {
+    let Some(notes) = &details.notes else {
+        return writeln!(out, "{NO_NOTES}");
+    };
+    if notes.is_empty() {
+        return writeln!(out, "Notas internas: nenhuma.");
+    }
+    writeln!(out, "Notas internas:")?;
+    for note in notes {
+        let author = note.author.as_deref().unwrap_or("-");
+        let text = indent_continuation(&note.body, "      ");
+        writeln!(out, "  {}  {author}: {text}", note.date)?;
+    }
+    Ok(())
+}
+
+const NO_NOTES: &str =
+    "Notas internas: indisponíveis (a página não as mostra; só a equipe de atendimento as vê).";
 
 /// Indents every line but the first, so multi-line values stay readable under their label.
 fn indent_continuation(text: &str, prefix: &str) -> String {
@@ -6716,6 +6747,73 @@ segredo-que-vai-no-qr
         assert!(out.contains(
             "Descrição: Texto\n\nLinha do tempo:\n  01/01/2026 10:00:00  Chamado aberto\n"
         ));
+    }
+
+    #[test]
+    fn show_prints_the_internal_notes_when_the_page_has_them() {
+        use serde_json::json;
+        let (_dir, paths) = paths();
+        let (runtime, server) = bare_server();
+        run_args(&["profile", "init", "--base-url", &server.uri()], &paths);
+        let page = |notes: &str| {
+            format!(
+                r#"<main id="content"><div class="title-container"><h2>Chamado 3</h2></div>
+                <div data-tab="linha_tempo"><ul class="timeline"><li><div class="timeline-date">01/01/2026 10:00:00</div>
+                <div class="timeline-content">Chamado aberto</div></li></ul></div>{notes}</main>"#
+            )
+        };
+        let notes = r#"<div data-tab="notas_internas"><ul class="timeline with-photos">
+            <li><div class="timeline-content"><h4>Adicionar Nota interna:</h4></div></li>
+            <li><div class="timeline-date">02/01/2026 09:00:00</div>
+              <div class="timeline-photo" title="Bia"><img src="/media/fotos/bia.jpg"></div>
+              <div class="timeline-content"><h4>Bia <small>comentou:</small></h4><p>Só a equipe.<br>Linha 2</p></div></li>
+            <li><div class="timeline-date">03/01/2026 09:00:00</div>
+              <div class="timeline-content"><p>Sem autor.</p></div></li>
+            </ul></div>"#;
+        let empty = r#"<div data-tab="notas_internas"><ul class="timeline"></ul></div>"#;
+        for (id, body) in [("3", page(notes)), ("4", page(empty)), ("5", page(""))] {
+            mount_listing(
+                &runtime,
+                &server,
+                &format!("/centralservicos/chamado/{id}/"),
+                ResponseTemplate::new(200).set_body_string(body),
+            );
+        }
+        let listed = "Notas internas:\n  02/01/2026 09:00:00  Bia: Só a equipe.\n      Linha 2\n  03/01/2026 09:00:00  -: Sem autor.\n";
+
+        // After the timeline, in the full view.
+        let (code, out, err) = run_args(&["show", "3"], &paths);
+        assert_eq!((code, err.as_str()), (0, ""));
+        assert!(
+            out.contains(&format!("Chamado aberto\n\n{listed}")),
+            "{out}"
+        );
+        // Only the notes.
+        let (code, out, _) = run_args(&["show", "3", "--notas"], &paths);
+        assert_eq!((code, out.as_str()), (0, listed));
+        let (_, out, _) = run_args(&["show", "4"], &paths);
+        assert!(out.ends_with("\n\nNotas internas: nenhuma.\n"), "{out}");
+        // People outside the team: no notes tab, no section; --notas says why.
+        let (_, out, _) = run_args(&["show", "5"], &paths);
+        assert!(!out.contains("Notas internas"), "{out}");
+        let (_, out, _) = run_args(&["show", "5", "--notas"], &paths);
+        assert_eq!(out, format!("{NO_NOTES}\n"));
+        let (code, _, err) = run_args(&["show", "5", "--notas", "--json"], &paths);
+        assert_eq!(code, 2, "{err}");
+
+        // JSON: the notes, an empty list, or null.
+        let (_, out, _) = run_args(&["show", "3", "--json"], &paths);
+        assert_eq!(
+            json_of(&out)["notes"],
+            json!([
+                {"date": "02/01/2026 09:00:00", "author": "Bia", "text": "Só a equipe.\nLinha 2"},
+                {"date": "03/01/2026 09:00:00", "author": null, "text": "Sem autor."},
+            ])
+        );
+        let (_, out, _) = run_args(&["show", "4", "--json"], &paths);
+        assert_eq!(json_of(&out)["notes"], json!([]));
+        let (_, out, _) = run_args(&["show", "5", "--json"], &paths);
+        assert_eq!(json_of(&out)["notes"], json!(null));
     }
 
     #[test]

@@ -67,6 +67,17 @@ fn markdown(details: &TicketDetails, info: &ExportInfo<'_>, files: &[Stored]) ->
             text.push_str(&format!("### {}\n\n{}\n\n", entry.date, entry.text));
         }
     }
+    let notes = details.notes.as_deref().unwrap_or_default();
+    if !notes.is_empty() {
+        text.push_str("## Notas internas\n\n");
+        for note in notes {
+            let author = note.author.as_deref().unwrap_or("-");
+            text.push_str(&format!(
+                "### {} — {author}\n\n{}\n\n",
+                note.date, note.body
+            ));
+        }
+    }
     if !files.is_empty() {
         text.push_str("## Anexos\n\n");
         for file in files {
@@ -83,6 +94,11 @@ fn data(details: &TicketDetails, info: &ExportInfo<'_>, files: &[Stored]) -> Str
     let timeline: Vec<_> = (details.timeline.iter())
         .map(|entry| json!({"date": entry.date, "text": entry.text}))
         .collect();
+    let notes: Option<Vec<_>> = details.notes.as_ref().map(|notes| {
+        (notes.iter())
+            .map(|note| json!({"date": note.date, "author": note.author, "text": note.body}))
+            .collect()
+    });
     let attachments: Vec<_> = (details.attachments.iter().enumerate())
         .map(|(index, link)| {
             let file = files.get(index).map(|file| file.path.clone());
@@ -100,6 +116,7 @@ fn data(details: &TicketDetails, info: &ExportInfo<'_>, files: &[Stored]) -> Str
         "exported_at": iso_utc(info.exported_at),
         "fields": fields,
         "timeline": timeline,
+        "notes": notes,
         "attachments": attachments,
     });
     serde_json::to_string_pretty(&document).expect("the document is serializable")
@@ -161,6 +178,12 @@ mod tests {
             <a href="/djtools/arquivo/centralservicos/chamadoanexo/1/anexo/">log</a>
             <a href="/djtools/arquivo/centralservicos/chamadoanexo/2/anexo/">log</a>
             <a href="/djtools/arquivo/centralservicos/chamadoanexo/3/..%2F..%2Fx.csv">../../CON</a></div></li>
+        </ul></div>
+        <div data-tab="notas_internas"><ul class="timeline with-photos">
+          <li><div class="timeline-date">13/10/2026 12:00:00</div>
+            <div class="timeline-photo" title="Bia"><img src="/media/fotos/bia.jpg"></div>
+            <div class="timeline-content"><h4>Bia <small>comentou:</small></h4><p>Só a equipe.</p></div></li>
+          <li><div class="timeline-date">13/10/2026 13:00:00</div><div class="timeline-content"><p>Sem autor.</p></div></li>
         </ul></div></main>"#;
 
     async fn mount(server: &MockServer, at: &str, body: &str) {
@@ -242,6 +265,8 @@ mod tests {
             "erro 500",
             "## Linha do tempo",
             "Chamado aberto.",
+            "## Notas internas\n\n### 13/10/2026 12:00:00 — Bia\n\nSó a equipe.",
+            "### 13/10/2026 13:00:00 — -\n\nSem autor.",
             "## Anexos",
             "(<anexos/",
         ] {
@@ -258,6 +283,13 @@ mod tests {
             .unwrap()
             .starts_with("anexos/"));
         assert_eq!(json["timeline"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            json["notes"],
+            serde_json::json!([
+                {"date": "13/10/2026 12:00:00", "author": "Bia", "text": "Só a equipe."},
+                {"date": "13/10/2026 13:00:00", "author": null, "text": "Sem autor."},
+            ])
+        );
         // No session data ever goes into the archive.
         let everything = format!("{text}{}", String::from_utf8_lossy(&files[1].1));
         assert!(!everything.to_lowercase().contains("cookie") && !everything.contains("sessionid"));
@@ -273,7 +305,10 @@ mod tests {
         let zip = export_ticket(&source, &bare, &info(None, false), true)
             .await
             .unwrap();
-        let text = String::from_utf8(read(&zip).remove(0).1).unwrap();
+        let mut bare_files = read(&zip);
+        let bare_json: serde_json::Value = serde_json::from_slice(&bare_files[1].1).unwrap();
+        assert_eq!(bare_json["notes"], serde_json::Value::Null);
+        let text = String::from_utf8(bare_files.remove(0).1).unwrap();
         assert!(
             !text.contains("## ") && !text.contains("Arquivado") && !text.contains("Título local"),
             "{text}"

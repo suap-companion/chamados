@@ -205,7 +205,7 @@ chamados export 559298 -o ~/analise       # em outra pasta (ou -o caminho/arquiv
 chamados export 559298 --sem-anexos       # só o texto e os dados
 ```
 
-O ZIP não leva sessão nem cookies. Não sobrescreve um arquivo existente sem `--force`.
+O ZIP não leva sessão nem cookies. Não sobrescreve um arquivo existente sem `--force`. Se você é da equipe de atendimento, o ZIP leva também as **notas internas** (seção "Notas internas" em `chamado.md` e chave `notes` em `chamado.json`): cuidado ao entregá-lo a quem não é da equipe.
 
 ### Adiar chamados (snooze)
 
@@ -286,6 +286,15 @@ echo "Log do erro..." | chamados attach 559298 -   # texto da entrada padrão, a
 
 Um `-` no lugar do arquivo anexa o texto da entrada padrão como `texto.pdf` (o SUAP não aceita `.txt`; o PDF é gerado localmente). Cada arquivo tem no máximo 10 MB (limite do SUAP, recusado antes do envio). Cada arquivo é um envio ao SUAP (o formulário dele aceita um por vez), com os mesmos tipos do `open --attach` (xlsx, xls, csv, docx, doc, pdf, jpg, jpeg, png). Todos os arquivos são lidos antes do primeiro envio, então um nome errado não deixa o chamado pela metade. A descrição (uma linha, até 80 caracteres) vale para todos os arquivos do comando e, sem ela, é o nome do arquivo. O SUAP só aceita anexo em chamados de serviços que permitem anexos e a quem pode ver o chamado; senão a recusa dele é mostrada. Para ver e baixar o que já está anexado, use `show` e `download`.
 
+### Ver um chamado e as notas internas
+
+`chamados show <id>` mostra os dados, os anexos, a linha do tempo e, depois dela, as **notas internas** (data, autor e texto), que só a equipe de atendimento vê. Para quem não é da equipe a página do SUAP não traz a aba de notas, e a seção é omitida.
+
+```bash
+chamados show 559298          # tudo, com as notas internas no fim
+chamados show 559298 --notas  # só as notas internas
+```
+
 ### Baixar anexos
 
 O `show` lista os anexos do chamado, numerados na ordem da linha do tempo. O `download` os grava no disco:
@@ -347,7 +356,7 @@ O estado fica só nesta máquina, em `watch.json` (`watch-<perfil>.json`) no dir
 | Comando | Formato |
 |---|---|
 | `list --json` | `[{"id": 7, "status": "...", "title": "título local ou null", "subject": "...", "url": "..."}]` |
-| `show --json` | `{"id", "title", "local_title", "statuses": [...], "service", "url", "fields": [{"label", "value"}], "attachments": [{"number", "name", "path"}], "timeline": [{"date", "text"}]}` |
+| `show --json` | `{"id", "title", "local_title", "statuses": [...], "service", "url", "fields": [{"label", "value"}], "attachments": [{"number", "name", "path"}], "timeline": [{"date", "text"}], "notes": [{"date", "author", "text"}]}` (`notes` é `null` para quem não vê as notas internas) |
 | `profile show --json` | `{"profile", "base_url", "username", "open": {"service", "interested", "campus", "center"}, "sync", "session_saved", "file"}` |
 | `profile list --json` | `[{"name", "default", "base_url", "username", "sync"}]` |
 | `sync --check --json` | `{"backend", "conditional_writes", "matches_configuration", "key_source", "key_present"}` |

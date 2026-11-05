@@ -36,7 +36,8 @@
 chamados list --meus                <span class="c"># meus chamados ativos</span>
 chamados list --busca moodle --status aberto
 chamados list --meus --todos --desde 2026-01-01
-chamados show 559298                <span class="c"># detalhes, histórico e anexos</span></pre>
+chamados show 559298                <span class="c"># detalhes, histórico, anexos e notas internas</span>
+chamados show 559298 --notas        <span class="c"># só as notas internas (equipe de atendimento)</span></pre>
 
     <h2>Abrir e atender</h2>
 <pre class="term">chamados profile update --service 53 --interested 1     <span class="c"># padrões, uma vez</span>
@@ -64,7 +65,7 @@ chamados comment 559298 --AI "avise que sai amanhã"     <span class="c"># com a
 chamados resolve 559298 --AI @o-que-fiz.txt             <span class="c"># instrução lida de um arquivo (ou - para a entrada padrão)</span></pre>
 
     <h2>Exportar para a IA</h2>
-    <p>O comando gera um ZIP com <code>chamado.md</code> (texto legível), <code>chamado.json</code> (dados estruturados) e a pasta <code>anexos/</code>: ideal para entregar a um assistente de IA analisar. Nada de sessão ou cookie vai no ZIP.</p>
+    <p>O comando gera um ZIP com <code>chamado.md</code> (texto legível), <code>chamado.json</code> (dados estruturados) e a pasta <code>anexos/</code>: ideal para entregar a um assistente de IA analisar. Nada de sessão ou cookie vai no ZIP. Para a equipe de atendimento, o ZIP leva também as notas internas: cuidado ao entregá-lo a quem não é da equipe.</p>
 <pre class="term">chamados export 559298
 chamados export 559298 --sem-anexos -o ~/analise</pre>
 

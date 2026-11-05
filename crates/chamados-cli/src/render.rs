@@ -199,6 +199,12 @@ pub fn details_json(details: &TicketDetails, local_title: Option<&str>) -> Value
         .iter()
         .map(|entry| json!({"date": entry.date, "text": entry.text}))
         .collect();
+    let notes: Option<Vec<Value>> = details.notes.as_ref().map(|notes| {
+        notes
+            .iter()
+            .map(|note| json!({"date": note.date, "author": note.author, "text": note.body}))
+            .collect()
+    });
     json!({
         "id": id_json(&details.id),
         "title": details.title,
@@ -209,6 +215,7 @@ pub fn details_json(details: &TicketDetails, local_title: Option<&str>) -> Value
         "fields": fields,
         "attachments": attachments,
         "timeline": timeline,
+        "notes": notes,
     })
 }
 
