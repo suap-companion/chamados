@@ -2018,6 +2018,11 @@ fn sync_key(
                 PAIR_NOTE
             };
             writeln!(out, "{note}")?;
+            if with_credentials {
+                writeln!(out)?;
+                writeln!(out, "{PAIR_CLI_SETUP_HEADER}")?;
+                writeln!(out, "{}", pairing.cli_setup_commands())?;
+            }
         }
         KeyCommand::Import { force } => {
             let key = Key::from_hex(&read_text(None, input)?)?;
@@ -2038,6 +2043,8 @@ const NO_CREDENTIALS: &str =
     "nenhuma credencial do bucket: execute `chamados sync credentials set`";
 const PAIR_NOTE_FULL: &str = "No app: menu ⋮ > Sincronização entre dispositivos > Ler QR (ou cole o texto acima): o app configura a chave, o bucket e as credenciais e sincroniza sozinho. ATENÇÃO: este QR e este texto contêm a chave de criptografia **e o secret do bucket**; quem os vir ou fotografar ganha acesso ao bucket. Não os compartilhe, não os cole em lugar algum, limpe o terminal depois e use um token restrito a este bucket. Rode `chamados sync` antes para enviar os títulos.";
 const PAIR_NOTE: &str = "No app: menu ⋮ > Sincronização entre dispositivos > Ler QR (ou cole o texto acima); depois informe a Access Key ID e a Secret do bucket (não vão no QR) e a sincronização roda sozinha. Rode `chamados sync` antes para enviar os títulos. O texto e o QR contêm a chave de criptografia: não os compartilhe.";
+const PAIR_CLI_SETUP_HEADER: &str =
+    "Para configurar o CLI em outra máquina com este pareamento, rode:";
 const AUTOMATION_NOTE: &str = "Dica: o chaveiro do sistema só abre com a sessão do usuário; para rodar sozinho, guarde a chave em arquivo (`chamados sync setup --key-source file`) ou na variável CHAMADOS_SYNC_KEY. Uma chave com frase-senha não serve para isso.";
 const SERVICE_UNIT: &str = "chamados-sync.service";
 const TIMER_UNIT: &str = "chamados-sync.timer";
@@ -5903,6 +5910,7 @@ segredo-que-vai-no-qr
         assert_eq!(code, 0);
         assert!(!out.contains("segredo-que-vai-no-qr") && !out.contains("acesso="));
         assert!(out.contains("não vão no QR"));
+        assert!(!out.contains("outra máquina"));
 
         let (code, out, err) = run_args(&["sync", "key", "pair", "--com-credenciais"], &paths);
         assert_eq!((code, err.as_str()), (0, ""));
@@ -5915,6 +5923,14 @@ segredo-que-vai-no-qr
         assert_eq!(credentials.access_key_id, "AKIAEXEMPLO");
         assert_eq!(credentials.secret_access_key, "segredo-que-vai-no-qr");
         assert!(out.contains("ATENÇÃO") && out.contains("secret do bucket"));
+        assert!(out.contains("outra máquina com este pareamento"));
+        assert!(out.contains(
+            "chamados sync setup --backend s3 --endpoint https://conta.r2.cloudflarestorage.com --bucket cofre --prefix dados"
+        ));
+        assert!(out.contains("chamados sync key import   # cole:"));
+        assert!(out.contains(
+            "chamados sync credentials set   # Access Key ID: AKIAEXEMPLO / Secret Access Key: segredo-que-vai-no-qr"
+        ));
     }
 
     #[test]

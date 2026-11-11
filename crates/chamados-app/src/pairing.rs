@@ -85,6 +85,32 @@ impl Pairing {
         uri.into()
     }
 
+    /// Os comandos para configurar outra instalação do CLI (outra máquina) com este pareamento, sem
+    /// precisar decompor a URL manualmente.
+    pub fn cli_setup_commands(&self) -> String {
+        let mut setup = format!(
+            "chamados sync setup --backend {} --endpoint {} --bucket {}",
+            self.backend, self.endpoint, self.bucket
+        );
+        if let Some(region) = &self.region {
+            setup.push_str(&format!(" --region {region}"));
+        }
+        if let Some(prefix) = &self.prefix {
+            setup.push_str(&format!(" --prefix {prefix}"));
+        }
+        let mut lines = vec![
+            setup,
+            format!("chamados sync key import   # cole: {}", self.key.to_hex()),
+        ];
+        if let Some(credentials) = &self.credentials {
+            lines.push(format!(
+                "chamados sync credentials set   # Access Key ID: {} / Secret Access Key: {}",
+                credentials.access_key_id, credentials.secret_access_key
+            ));
+        }
+        lines.join("\n")
+    }
+
     /// Lê o texto de um pareamento (o conteúdo de um QR, ou o que foi colado).
     pub fn parse(text: &str) -> Result<Self, SyncError> {
         let uri = Url::parse(text.trim()).map_err(|_| refused("o texto não é um pareamento"))?;
@@ -213,6 +239,34 @@ mod tests {
         assert!(error.contains("faltam o acesso ou o segredo"), "{error}");
         let only_secret = uri.replace("acesso=AKIAEXEMPLO&", "");
         assert!(Pairing::parse(&only_secret).is_err());
+    }
+
+    #[test]
+    fn cli_setup_commands_cover_region_prefix_and_credentials() {
+        let key = Key::generate();
+        let hex = key.to_hex();
+        let full = Pairing::from_settings(&bucket(), key.clone())
+            .unwrap()
+            .with_credentials(credentials());
+        let commands = full.cli_setup_commands();
+        assert!(commands.contains(
+            "chamados sync setup --backend r2 --endpoint https://conta.r2.cloudflarestorage.com --bucket chamados --region auto --prefix kelson/ifrn"
+        ));
+        assert!(commands.contains(&format!("chamados sync key import   # cole: {hex}")));
+        assert!(commands.contains(
+            "chamados sync credentials set   # Access Key ID: AKIAEXEMPLO / Secret Access Key: segredo/com+simbolos="
+        ));
+
+        // Without region, prefix or credentials, those pieces are left out.
+        let plain_settings = SyncSettings {
+            region: None,
+            prefix: None,
+            ..bucket()
+        };
+        let plain = Pairing::from_settings(&plain_settings, key).unwrap();
+        let commands = plain.cli_setup_commands();
+        assert!(!commands.contains("--region") && !commands.contains("--prefix"));
+        assert!(!commands.contains("credentials set"));
     }
 
     #[test]
