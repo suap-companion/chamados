@@ -558,7 +558,7 @@ dependencies = [
 
 [[package]]
 name = "chamados-app"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "chamados-assist",
  "chamados-core",
@@ -576,14 +576,14 @@ dependencies = [
 
 [[package]]
 name = "chamados-assist"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "chamados-core",
 ]
 
 [[package]]
 name = "chamados-cli"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "chamados-app",
  "chamados-core",
@@ -600,7 +600,7 @@ dependencies = [
 
 [[package]]
 name = "chamados-core"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "scraper",
  "serde",
@@ -615,7 +615,7 @@ dependencies = [
 
 [[package]]
 name = "chamados-mobile"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "chamados-app",
  "chamados-assist",
@@ -634,7 +634,7 @@ dependencies = [
 
 [[package]]
 name = "chamados-sync"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "chamados-core",
  "serde",
